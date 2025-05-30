@@ -1,3 +1,9 @@
+# Running Command
+
+```bash
+cd wQFM-TREE && bash run.sh ./test-data/11Tax5Genes.tre output_11taxa.txt
+```
+
 # wQFM-TREE Codebase Reading Guide
 
 This guide provides an optimal reading order for understanding the wQFM-TREE codebase, designed to build your knowledge progressively from foundational concepts to complex algorithmic implementations.

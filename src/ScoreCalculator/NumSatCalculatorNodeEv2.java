@@ -3,36 +3,83 @@ package src.ScoreCalculator;
 import src.Config;
 import src.Tree.Branch;
 
+/**
+ * NumSatCalculatorNodeEv2: Direct bipartition scoring from gene trees implementation.
+ * 
+ * This class implements Algorithm 2 from the paper: "Scoring a bipartition (used by FM 
+ * algorithm to find the best bipartition)". It provides the mathematical formulations
+ * described in Section 2.5 for computing bipartition scores directly from gene trees
+ * without explicitly enumerating the O(n⁴) induced quartets.
+ * 
+ * Key mathematical concepts implemented:
+ * 
+ * 1. w(S^[g]) - Sum of weights of satisfied resolved quartets (Section 2.5.1)
+ * 2. w(S^[g] ∪ V^[g] ∪ U^[g]) - Sum of weights of all relevant quartets (Section 2.5.2)
+ * 3. w(U^[g]) - Sum of weights of unresolved quartets (Section 2.5.3)
+ * 
+ * The final score uses the restructured equation from the paper:
+ * Score(A,B,G) = Σ_g (2w(S^[g]) - w(S^[g] ∪ V^[g] ∪ U^[g]) + w(U^[g]))
+ * 
+ * This reformulation enables efficient computation by avoiding direct calculation
+ * of w(V^[g]) (violated quartets) while maintaining mathematical equivalence.
+ */
 public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
-    Branch[] branches;
-    double[] pairsBFromSingleBranch;
-    double[][] sumPairsBranch;
-    double[] dummyTaxaWeightsIndividual;
-    // double totalTaxaA;
-    // double totalTaxaB;
-    double[] totalTaxa;
-    double[][][] pairs;
-    double[] sumPairs;
-
-    double nonQuartets;
-    // double sumPairsB;
-    double sumPairsBSingleBranch;
     
+    // Gene tree branch structure representing components after removing internal nodes
+    Branch[] branches;
+    
+    // Precomputed values for efficient quartet weight calculations
+    double[] pairsBFromSingleBranch;    // w(PB_k^[g,u]) values for each branch
+    double[][] sumPairsBranch;          // Sums of pair weights for each branch and partition
+    double[] dummyTaxaWeightsIndividual; // Individual weights for dummy taxa
+    double[] totalTaxa;                 // Total taxa counts per partition [A, B]
+    double[][][] pairs;                 // Pair weights between branches [i][j][partition]
+    double[] sumPairs;                  // Total pair weights per partition
 
-    int nDummyTaxa;
+    // Unresolved quartet handling
+    double nonQuartets;                 // w(U^[g]) - sum of unresolved quartet weights
+    double sumPairsBSingleBranch;       // Sum of single-branch B-partition pairs
+    
+    int nDummyTaxa;                     // Number of dummy taxa in current subproblem
 
+    // Strategy pattern for different unresolved quartet calculation methods
     NonQuartCalculator nonQuartCalculator;
 
-
+    /**
+     * Interface for computing unresolved quartet contributions.
+     * 
+     * The paper describes two different approaches (Type A and Type B) for handling
+     * unresolved quartets in polytomy nodes, as mentioned in Section 2.5.3.
+     * This interface allows switching between these strategies.
+     */
     public interface NonQuartCalculator{
+        /**
+         * Computes w(U^[g]) - the sum of weights of unresolved quartets.
+         * @return Total weight of unresolved quartets in current gene tree
+         */
         double calcNonQuartets();
+        
+        /**
+         * Computes the change in unresolved quartet weights when transferring
+         * taxa from one partition to another (used for gain calculations).
+         * @param branchIndex Index of the branch affected by taxon transfer
+         * @return Change in unresolved quartet weight
+         */
         double changeAmount(int branchIndex);
     }
 
+    /**
+     * Type B unresolved quartet calculator.
+     * 
+     * This implements one variant of the unresolved quartet weight calculation
+     * as described in Section 2.5.3 of the paper. The specific mathematical
+     * formulation differs between Type A and Type B approaches.
+     */
     class NonQuartCalculatorB implements NonQuartCalculator{
         @Override
         public double calcNonQuartets(){
             double q = 0;
+            // Calculate unresolved quartet weights using Type B formulation
             for(int i = 0; i < branches.length; ++i){
                 for(int j = i + 1; j < branches.length; ++j){
                     q += pairs[i][j][0] * (sumPairs[1] - pairs[i][j][1]);
@@ -44,6 +91,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         @Override
         public double changeAmount(int branchIndex){
             double q = 0;
+            // Calculate change in unresolved quartet weights for gain computation
             for(int i = 0; i < branches.length; ++i){
                 if(i == branchIndex) continue;
                 int mni = branchIndex > i ? i : branchIndex;
@@ -55,10 +103,18 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         }
     }
 
+    /**
+     * Type A unresolved quartet calculator.
+     * 
+     * This implements the alternative variant of unresolved quartet weight calculation.
+     * The mathematical formulation differs from Type B in how it handles the
+     * interaction between branches in polytomy nodes.
+     */
     class NonQuartCalculatorA implements NonQuartCalculator{
         @Override
         public double calcNonQuartets(){
             double q = 0;
+            // Calculate unresolved quartet weights using Type A formulation
             for(int i = 0; i < branches.length; ++i){
                 for(int j = i + 1; j < branches.length; ++j){
                     q += pairs[i][j][0] * (sumPairs[1] - sumPairsBranch[i][1] - sumPairsBranch[j][1] + pairs[i][j][1]);
@@ -70,6 +126,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         @Override
         public double changeAmount(int branchIndex){
             double q = 0;
+            // Calculate change in unresolved quartet weights for gain computation
             for(int i = 0; i < branches.length; ++i){
                 if(i == branchIndex) continue;
                 int mni = branchIndex > i ? i : branchIndex;
@@ -80,33 +137,26 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
             }
             return q;
         }
-
     }
 
-
+    // Dummy taxa partition assignment for weight calculations
     int[] dummyTaxaPartition;
 
-    // double calcNonQuartets(){
-    //     double q = 0;
-    //     for(int i = 0; i < this.branches.length; ++i){
-    //         for(int j = i + 1; j < this.branches.length; ++j){
-    //             q += this.pairs[i][j][0] * (this.sumPairs[1] - this.pairs[i][j][1]);
-    //             // q += this.pairs[i][j][0] * (this.sumPairs[1] - this.sumPairsBranch[i][1] - this.sumPairsBranch[j][1] + this.pairs[i][j][1]);
-
-    //             // q += this.pairs[i][j][1] * (this.sumPairs[0] - this.sumPairsBranch[i][0] - this.sumPairsBranch[j][0] + this.pairs[i][j][0]);
-    //         }
-    //     }
-
-    //     return q;
-    // }
-
+    /**
+     * Constructor initializes the scoring calculator for a specific gene tree node.
+     * 
+     * @param b Array of branches representing components after removing an internal node
+     *          This corresponds to the C^[g,u] sets described in Section 2.5.1
+     */
     public NumSatCalculatorNodeEv2(Branch[] b) {
 
         this.branches = b;
         this.totalTaxa = new double[2];
 
+        // Initialize dummy taxa count from branch structure
         this.nDummyTaxa = b[0].dummyTaxaWeightsIndividual.length;
 
+        // Initialize arrays for efficient quartet weight computation
         pairsBFromSingleBranch = new double[b.length];
         sumPairsBranch = new double[b.length][2];
         this.sumPairs = new double[2];
@@ -114,17 +164,36 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         this.pairs = new double[b.length][b.length][2];
         this.nonQuartets = 0;
 
-
+        // Select unresolved quartet calculation strategy based on configuration
         if(Config.NON_QUARTET_TYPE == Config.NonQuartetType.A){
             this.nonQuartCalculator = new NonQuartCalculatorA();
         }
         else{
             this.nonQuartCalculator = new NonQuartCalculatorB();
         }
+        
+        // Initial calculation of unresolved quartet weights
         this.nonQuartets = this.nonQuartCalculator.calcNonQuartets();
-
     }
 
+    /**
+     * Initializes bookkeeping structures for bipartition scoring calculations.
+     * 
+     * This method implements the preprocessing required for efficient computation
+     * of the mathematical formulations from Section 2.5. It precomputes various
+     * pair weights and sums to enable O(1) access during score calculations.
+     * 
+     * Key computations performed:
+     * 1. Initialize w(PA_{i,j}^[g,u]) and w(PB_{i,j}^[g,u]) calculations (Section 2.1.1)
+     * 2. Precompute w(PB_k^[g,u]) for single-branch pairs (Section 2.1.2)
+     * 3. Setup dummy taxa weight handling with normalization (Section 2.3)
+     * 
+     * @param dummyTaxaToPartitionMap Assignment of dummy taxa to partitions
+     * @param totalTaxaA Total weight of taxa in partition A
+     * @param totalTaxaB Total weight of taxa in partition B  
+     * @param dummyTaxaWeightsIndividual Individual weights for dummy taxa
+     * @param nDummyTaxa Number of dummy taxa in current subproblem
+     */
     public void initBookkeeping(
         int[] dummyTaxaToPartitionMap,
         double totalTaxaA, 
@@ -138,6 +207,8 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         this.totalTaxa[1] = totalTaxaB;
         
         this.nDummyTaxa = nDummyTaxa;
+        
+        // Reset all precomputed values
         for(int i = 0; i < this.branches.length; ++i){
             this.pairsBFromSingleBranch[i] = 0;
             this.sumPairsBranch[i][0] = 0;
@@ -149,14 +220,31 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
 
         var b = this.branches;
         
+        /**
+         * PRECOMPUTE INTER-BRANCH PAIR WEIGHTS
+         * 
+         * This implements the pair weight calculations described in Section 2.1.1.
+         * For each pair of branches (i,j), compute:
+         * - pairs[i][j][0] = w(PA_{i,j}^[g,u]) for partition A
+         * - pairs[i][j][1] = w(PB_{i,j}^[g,u]) for partition B
+         * 
+         * The dummy taxa weight adjustments implement the constraint that
+         * "no two taxa under the same dummy taxon" can participate in a quartet.
+         */
         for(int i = 0; i < b.length; ++i){
             for(int j = i + 1; j < b.length; ++j){
+                // Initial pair weights: product of branch total counts
                 this.pairs[i][j][0] = b[i].totalTaxaCounts[0] * b[j].totalTaxaCounts[0];
                 this.pairs[i][j][1] = b[i].totalTaxaCounts[1] * b[j].totalTaxaCounts[1];
+                
+                // Subtract dummy taxa contributions to prevent double-counting
+                // This implements the exclusion constraint from Section 2.5
                 for(int k = 0; k < this.nDummyTaxa; ++k){
                     int partition = this.dummyTaxaPartition[k];
                     this.pairs[i][j][partition] -= b[i].dummyTaxaWeightsIndividual[k] * b[j].dummyTaxaWeightsIndividual[k];
                 }
+                
+                // Accumulate sums for efficient access during scoring
                 sumPairsBranch[i][0] += this.pairs[i][j][0];
                 sumPairsBranch[j][0] += this.pairs[i][j][0];
                 sumPairsBranch[i][1] += this.pairs[i][j][1];
@@ -166,49 +254,86 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
                 this.sumPairs[1] += this.pairs[i][j][1];
             }
 
+            /**
+             * PRECOMPUTE SINGLE-BRANCH PAIR WEIGHTS
+             * 
+             * This computes w(PB_k^[g,u]) as described in Section 2.1.2.
+             * These represent pairs of taxa within the same branch that both
+             * belong to partition B, implementing the formula:
+             * 
+             * w(PB_k^[g,u]) = (1/2) * (w(F_B^[g,u,k])² - w(R_B^[g,u,k]) - Σ_X w(X_R^[g,u,k])²)
+             */
             pairsBFromSingleBranch[i] = b[i].totalTaxaCounts[1] * b[i].totalTaxaCounts[1];
+            
+            // Subtract dummy taxa squared weights (prevents {a,a} pairs)
             for(int k = 0; k < this.nDummyTaxa; ++k){
                 int partition = this.dummyTaxaPartition[k];
                 if(partition == 1){
                     pairsBFromSingleBranch[i] -= b[i].dummyTaxaWeightsIndividual[k] * b[i].dummyTaxaWeightsIndividual[k];
                 }
             }
+            
+            // Subtract real taxa weights (unit weights, so just count)
             pairsBFromSingleBranch[i] -= b[i].realTaxaCounts[1];
+            
+            // Divide by 2 since we're counting unordered pairs
             pairsBFromSingleBranch[i] /= 2;
             this.sumPairsBSingleBranch += pairsBFromSingleBranch[i];
         }
 
+        // Reinitialize unresolved quartet calculator with current configuration
         if(Config.NON_QUARTET_TYPE == Config.NonQuartetType.A){
             this.nonQuartCalculator = new NonQuartCalculatorA();
         }
         else{
             this.nonQuartCalculator = new NonQuartCalculatorB();
         }
+        
+        // Compute initial unresolved quartet weights
         this.nonQuartets = this.nonQuartCalculator.calcNonQuartets();
     }
 
+    /**
+     * Computes the bipartition score using the restructured equation from Section 2.5.
+     * 
+     * This implements the core scoring formula:
+     * Score = Σ_g (2w(S^[g]) - w(S^[g] ∪ V^[g] ∪ U^[g]) + w(U^[g]))
+     * 
+     * The method computes only the contribution from this specific gene tree node,
+     * which represents one internal node u in gene tree g. The total score is
+     * obtained by summing over all internal nodes across all gene trees.
+     * 
+     * Key components:
+     * 1. w(S^[g,u]) - satisfied quartets anchored at this node (computed via pairs)
+     * 2. w(U^[g,u]) - unresolved quartets at this node (computed by nonQuartCalculator)
+     * 
+     * @return Contribution to total bipartition score from this gene tree node
+     */
     @Override
     public double score(){
         double res = 0;
+        
+        /**
+         * COMPUTE w(S^[g,u]) CONTRIBUTION
+         * 
+         * This implements the efficient formulation from Section 2.1.3:
+         * w(S^[g,u]) = Σ_{i<j} w(PA_{i,j}^[g,u]) * (w(PB^[g,u]) - w(PB_i^[g,u]) - w(PB_j^[g,u]))
+         * 
+         * The formula is restructured for computational efficiency as:
+         * -Σ_i w(PB_i^[g,u]) * Σ_j≠i w(PA_{i,j}^[g,u]) + w(PA^[g,u]) * w(PB^[g,u])
+         */
         for(int i = 0; i < this.branches.length; ++i){
             res -=  pairsBFromSingleBranch[i] * sumPairsBranch[i][0];
         }
         res += this.sumPairs[0] * this.sumPairsBSingleBranch;
 
-        // double res2 = 0;
-        // for(int i = 0; i < this.branches.length; ++i){
-        //     for(int j = i + 1; j < this.branches.length; ++j ){
-        //         res2 += (this.pairs[i][j][0] * (this.sumPairsBSingleBranch - this.pairsBFromSingleBranch[i] - this.pairsBFromSingleBranch[j]));
-        //     }
-        // }
-
-        // if(Math.abs(res - res2) > .00001){
-        //     System.out.println("not equal. diff : " + (res - res2));
-        // }
-        // else{
-        //     // System.out.println("equal");
-        // }
-
+        /**
+         * ADD UNRESOLVED QUARTET CONTRIBUTION
+         * 
+         * This adds (1/2) * w(U^[g,u]) to the score as described in Section 2.5.3.
+         * The factor of 1/2 accounts for the way unresolved quartets are counted
+         * in the overall scoring scheme.
+         */
         res += (this.nonQuartets / 2);
         return res;
     }
@@ -217,22 +342,6 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
     public void swapRealTaxon(int branchIndex, int currPartition){
         
         this.nonQuartets -= this.nonQuartCalculator.changeAmount(branchIndex);
-        // for(int i = 0; i < this.branches.length; ++i){
-        //     if(i == branchIndex) continue;
-        //     int mni = branchIndex > i ? i : branchIndex;
-        //     int mxi = branchIndex > i ? branchIndex : i;
-            
-        //     // this.nonQuartets -= this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.sumPairsBranch[mni][1] - this.sumPairsBranch[mxi][1] + this.pairs[mni][mxi][1]);
-        //     // this.nonQuartets -= this.pairs[mni][mxi][1] * (this.sumPairs[0] - this.sumPairsBranch[mni][0] - this.sumPairsBranch[mxi][0] + this.pairs[mni][mxi][0]);
-
-        //     // this.nonQuartets -= this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.sumPairsBranch[branchIndex][1] + this.pairs[mni][mxi][1]);
-        //     this.nonQuartets -= this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.sumPairsBranch[branchIndex][1]);
-
-        //     // this.nonQuartets -= this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.pairs[mni][mxi][1]);
-        //     this.nonQuartets -= this.pairs[mni][mxi][1] * (this.sumPairs[0] - this.pairs[mni][mxi][0]);
-
-
-        // }
         for(int i = 0; i < this.branches.length; ++i){
             if(branchIndex == i){
                 this.sumPairsBranch[i][1 - currPartition] += (this.totalTaxa[1-currPartition] - this.branches[i].totalTaxaCounts[1-currPartition]);
@@ -254,8 +363,6 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
                 this.sumPairsBranch[i][currPartition] -= this.branches[i].totalTaxaCounts[currPartition];
                 this.sumPairsBranch[i][1 - currPartition] += this.branches[i].totalTaxaCounts[1 - currPartition];
 
-                // this.nonQuartets += this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.sumPairsBranch[mni][1] - this.sumPairsBranch[mxi][1] + this.pairs[mni][mxi][1]);
-
             }
             
 
@@ -272,31 +379,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         this.totalTaxa[currPartition] -= 1;
         this.totalTaxa[1 - currPartition] += 1;
 
-        // this.nonQuartets = this.calcNonQuartets();
         this.nonQuartets += this.nonQuartCalculator.changeAmount(branchIndex);
-        // for(int i = 0; i < this.branches.length; ++i){
-        //     if(i == branchIndex) continue;
-        //     int mni = branchIndex > i ? i : branchIndex;
-        //     int mxi = branchIndex > i ? branchIndex : i;
-        //     // this.nonQuartets += this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.sumPairsBranch[mni][1] - this.sumPairsBranch[mxi][1] + this.pairs[mni][mxi][1]);
-        //     // this.nonQuartets += this.pairs[mni][mxi][1] * (this.sumPairs[0] - this.sumPairsBranch[mni][0] - this.sumPairsBranch[mxi][0] + this.pairs[mni][mxi][0]);
-
-        //     // this.nonQuartets += this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.sumPairsBranch[branchIndex][1] + this.pairs[mni][mxi][1]);
-        //     this.nonQuartets += this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.sumPairsBranch[branchIndex][1]);
-            
-        //     // this.nonQuartets -= this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.pairs[mni][mxi][1]);
-        //     this.nonQuartets += this.pairs[mni][mxi][1] * (this.sumPairs[0] - this.pairs[mni][mxi][0]);            
-            
-        //     // this.nonQuartets += this.pairs[mni][mxi][0] * (this.sumPairs[1] - this.pairs[mni][mxi][1]);
-        //     // this.nonQuartets += this.pairs[mni][mxi][1] * (this.sumPairs[0] - this.pairs[mni][mxi][0]);        
-        // }
-        // double diff = Math.abs(this.calcNonQuartets() - this.nonQuartets);
-        // if(diff > .00001){
-        //     System.out.println("not equal.diff : " + diff);
-        // }
-        // else{
-        //     // System.out.println("equal");
-        // }
 
         branches[branchIndex].swapRealTaxa(currPartition);
 
@@ -348,7 +431,6 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         }
 
         this.nonQuartets = this.nonQuartCalculator.calcNonQuartets();
-        // this.nonQuartets = this.calcNonQuartets();
         
     }
 

@@ -7,21 +7,44 @@ import java.util.Stack;
 
 import src.Taxon.RealTaxon;
 
-// Leafs are real taxon
-
+/**
+ * Tree: Core tree data structure for wQFM-TREE algorithm.
+ * 
+ * This class implements the phylogenetic tree representation used throughout
+ * the wQFM-TREE algorithm. It handles various tree operations essential for
+ * the divide-and-conquer approach:
+ * 
+ * 1. Gene tree parsing from Newick format
+ * 2. Consensus tree construction and manipulation
+ * 3. Tree balancing and re-rooting operations
+ * 4. Support for Algorithm 2 scoring through efficient tree traversal
+ * 5. Final species tree output generation
+ * 
+ * Trees in wQFM-TREE contain real taxa as leaves and support dummy taxa
+ * through special node markings. The tree structure enables efficient
+ * quartet evaluation and the mathematical formulations from Section 2.5.
+ */
 public class Tree {
     
-    public ArrayList<TreeNode> nodes;
-    public ArrayList<TreeNode> topSortedNodes;
-
-    public TreeNode root;
-    public Map<String, RealTaxon> taxaMap;
-    // in order of id
-    public TreeNode[] leaves;
-    // leavesCount and size of leaves array may be different
-    public int leavesCount;
+    // Core tree structure
+    public ArrayList<TreeNode> nodes;               // All nodes in tree (internal + leaves)
+    public ArrayList<TreeNode> topSortedNodes;      // Nodes in topological order for traversal
+    
+    public TreeNode root;                           // Root node of the tree
+    public Map<String, RealTaxon> taxaMap;          // Mapping from taxon names to RealTaxon objects
+    
+    // Leaf access optimization for Algorithm 2 scoring
+    public TreeNode[] leaves;                       // Fast access to leaf nodes by taxon ID
+    public int leavesCount;                         // Number of leaves in tree
     
 
+    /**
+     * Creates a new internal or leaf tree node.
+     * 
+     * This is the fundamental building block for tree construction, used both
+     * during Newick parsing and during the conquer phase when combining
+     * subproblem solutions.
+     */
     public TreeNode addNode(ArrayList<TreeNode> children, TreeNode parent){
 
         TreeNode nd = new TreeNode().setIndex(nodes.size()).setChilds(children).setParent(parent);
@@ -30,6 +53,12 @@ public class Tree {
     }
 
 
+    /**
+     * Creates a new internal node with specified children.
+     * 
+     * Used extensively during tree construction and the conquer phase where
+     * subproblem solutions are combined through tree grafting operations.
+     */
     public TreeNode addInternalNode(ArrayList<TreeNode> children){
         var nd = addNode(children, null);
         for (var x : children)
@@ -37,12 +66,31 @@ public class Tree {
         return nd;
     }
 
+    /**
+     * Creates a new leaf node for a real taxon.
+     * 
+     * Leaf nodes represent the actual species/taxa being analyzed. During
+     * Algorithm 2 scoring, these nodes are the evaluation points for the
+     * mathematical formulations from Section 2.5.
+     */
     public TreeNode addLeaf(RealTaxon taxon){
         var nd = addNode(null, null).setTaxon(taxon);
         return nd;
     }
 
 
+    /**
+     * Parses a phylogenetic tree from Newick format.
+     * 
+     * This method handles the input gene trees and consensus trees used
+     * throughout the wQFM-TREE algorithm. The parsed trees are used for:
+     * 1. Gene tree preprocessing and scoring (Algorithm 2)
+     * 2. Consensus tree construction for Algorithm 1
+     * 3. Final species tree output
+     * 
+     * The parser handles standard Newick format with taxon name mapping
+     * through the provided taxaMap for consistent taxon identification.
+     */
     private void parseFromNewick(String newickLine){
 
         // Map<String, RealTaxon> taxaMap = new HashMap<>();
@@ -57,12 +105,15 @@ public class Tree {
     
         int i = 0, j = 0;
     
+        // Standard Newick parsing with stack-based approach
         while(i < n){
             char curr = newickLine.charAt(i);
             if(curr == '('){
+                // Start of internal node - push sentinel
                 nodes.push(null);
             }
             else if(curr == ')'){
+                // End of internal node - collect children and create internal node
                 ArrayList<TreeNode> arr = new ArrayList<>();
                 while( !nodes.isEmpty() && nodes.peek() != null){
                     arr.add(nodes.pop());
@@ -73,9 +124,10 @@ public class Tree {
                 
             }
             else if(curr == ',' || curr == ';'){
-    
+                // Separators - skip
             }
             else{
+                // Taxon name - parse and create leaf node
                 StringBuilder taxa = new StringBuilder();
                 j = i;
                 TreeNode newNode = null;
@@ -83,13 +135,8 @@ public class Tree {
                     char curr_j = newickLine.charAt(j);
                     if(curr_j == ')' || curr_j == ','){
                         RealTaxon taxon;
-                        // if(this.taxaMap != null){
-                            taxon = this.taxaMap.get(taxa.toString());
-                        // }
-                        // else{
-                        //     taxon = new RealTaxon(taxa.toString());
-                        //     taxaMap.put(taxon.label, taxon);
-                        // }   
+                        // Lookup taxon in provided mapping for consistent IDs
+                        taxon = this.taxaMap.get(taxa.toString());
                         newNode = addLeaf(taxon);
                         leavesCount++;
 
@@ -99,15 +146,10 @@ public class Tree {
                     ++j;
                 }
                 if(j == n){
+                    // End of string - final taxon
                     leavesCount++;
                     RealTaxon taxon;
-                    // if(this.taxaMap != null){
-                        taxon = this.taxaMap.get(taxa.toString());
-                    // }
-                    // else{
-                    //     taxon = new RealTaxon(taxa.toString());
-                    //     taxaMap.put(taxon.label, taxon);
-                    // }   
+                    taxon = this.taxaMap.get(taxa.toString());
                     newNode = addLeaf(taxon);
                 }
                 i = j - 1;
@@ -116,18 +158,15 @@ public class Tree {
             ++i;
         }
 
-        // if(this.taxaMap == null)
-        //     this.taxaMap = taxaMap;
-
-        // this.leavesCount = this.taxaMap.size();
         this.leavesCount = leavesCount;
     
         root = nodes.lastElement();
     
+        // Ensure binary tree structure for efficient Algorithm 2 operations
         if(root.childs.size() > 2)
             balanceRoot();
         
-        
+        // Set up data structures for efficient tree operations
         filterLeaves();
         topSort();
 
@@ -144,10 +183,15 @@ public class Tree {
         // }
         // bringLeafsToFront();
 
-
-
     }
 
+    /**
+     * Creates fast-access array for leaf nodes indexed by taxon ID.
+     * 
+     * This optimization is crucial for Algorithm 2 scoring, which needs
+     * frequent access to leaf nodes by taxon ID during quartet evaluation.
+     * The leaves array enables O(1) lookup instead of O(n) tree traversal.
+     */
     private void filterLeaves(){
         this.leaves = new TreeNode[this.taxaMap.size()];
         for(var x : nodes){
@@ -157,10 +201,22 @@ public class Tree {
         }
     }
 
+    /**
+     * Recursively resolves non-binary internal nodes using distance matrix.
+     * 
+     * This method converts non-binary (polytomy) nodes into binary nodes using
+     * a distance-based heuristic. This is important for Algorithm 2 scoring
+     * which assumes binary tree structure for efficient quartet evaluation.
+     * 
+     * The resolution strategy selects the child subtree with maximum total
+     * distance to all other taxa and separates it from the rest.
+     */
     public ArrayList<Integer> resolveNonBinaryUtil(TreeNode node, double[][] distanceMatrix){
         if(node.isLeaf()){
             return new ArrayList<>(Arrays.asList(node.taxon.id));
         }
+        
+        // Collect taxa reachable from each child subtree
         var reachableFromChilds = new ArrayList<ArrayList<Integer>>();
         for(var x : node.childs){
             reachableFromChilds.add(resolveNonBinaryUtil(x, distanceMatrix));
@@ -170,9 +226,12 @@ public class Tree {
             allReachableFromChilds.addAll(x);
         }
 
+        // Resolve polytomy if more than 2 children
         if(node.childs.size() > 2){
             double mxDist = Double.MIN_VALUE;
             int mxIndex = -1;
+            
+            // Find child subtree with maximum total distance to all others
             for(int i = 0; i < node.childs.size(); ++i){
                 double currDist = 0;
                 for(var a : allReachableFromChilds){
@@ -186,14 +245,18 @@ public class Tree {
                 }
             }
 
+            // Separate the maximum distance child from others
             var branchI = node.childs.get(mxIndex);
             node.childs.remove(mxIndex);
             
+            // Create new internal node for remaining children
             var newNode = addInternalNode(node.childs);
             newNode.setParent(node);
             node.childs = new ArrayList<>();
             node.childs.add(branchI);
             node.childs.add(newNode);
+            
+            // Recursively resolve the new internal node
             resolveNonBinaryUtil(newNode, distanceMatrix);
 
         }

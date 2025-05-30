@@ -1,0 +1,226 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\title{Supplementary Material to wQFM-TREE: Highly Accurate and Scalable Quartet-Based Species Tree Inference from Gene Trees}
+\author{
+  Abdur Rafi$^{1, \ddagger}$, Ahmed Mahir Sultan Rumi$^{1, \ddagger}$, Sheikh Azizul Hakim$^1$, Sohaib$^1$, \\
+  Md. Toki Tahmid$^1$, Rabib Jahin Ibn Momin$^1$, Tanjeem Azwad Zaman$^1$, \\
+  Rezwana Reaz$^1$, and Md. Shamsuzzoha Bayzid$^{1, *}$ \\
+  $^1$ Department of Computer Science and Engineering \\
+  Bangladesh University of Engineering and Technology \\
+  Dhaka-1205, Bangladesh \\
+  $^{\dagger}$ These authors contributed equally to this work \\
+  $^*$ Corresponding author: shams\_bayzid@cse.buet.ac.bd
+}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\section{Overview of wQFM and wQFM-TREE}
+
+wQFM-TREE follows exactly the same divide-and-conquer approach as wQFM. However, the underlying techniques in each divide step is different as wQFM-TREE does all the computations directly from the input gene trees. Here, an initial bipartition is created at each divide step using a greedy consensus tree of the gene trees following Algorithm 1. Then, the the initial bipartition is modified and refined through the FM algorithm Fiduccia and Mattheyses [1982] which uses the scoring process presented in Algorithm 2.
+
+\begin{algorithm}
+\caption{Creation of initial bipartition for a taxa set which will be further refined by the FM algorithm}
+\begin{algorithmic}
+\State \textbf{Input}: $\mathcal{G}$, set of gene trees
+\State \hskip1.5em $S$, set of taxa of a subproblem (may contain dummy taxa)
+\State \textbf{Output}: $\left(S_A, S_B\right)$: A bipartition over the set $S$
+\State $\mathcal{C} \leftarrow \text{ConstructGreedyConsensusTree}(\mathcal{G})$
+\State $S_A \leftarrow \emptyset$
+\State $S_B \leftarrow \emptyset$
+\State maxscore $\leftarrow 0$
+\For{each edge $e \in \mathcal{C}$}
+    \State $(A, B) \leftarrow$ bipartition defined by the edge $e$
+    \State /* $S$ may contain dummy taxa and therefore $(A, B)$ directly is not a candidate for initial bipartition, we create candidate initial bipartition by further processing */
+    \State $C_A \leftarrow \emptyset$
+    \State $C_B \leftarrow \emptyset$
+    \For{each $t$ in $S$}
+        \If{$t \in A$}
+            \State $C_A \leftarrow C_A \cup \{t\}$; // real taxa present in A
+        \ElsIf{$t \in B$}
+            \State $C_B \leftarrow C_B \cup \{t\}$; // real taxa present in B
+        \Else
+            \State // $t$ is a dummy taxa
+            \State $W_A \leftarrow$ weighted sum of real taxa "under taxon $t$" present in A
+            \State $W_B \leftarrow$ weighted sum of real taxa "under taxon $t$" present in B
+            \If{$W_A \geq W_B$}
+                \State $C_A \leftarrow C_A \cup \{t\}$;
+            \Else
+                \State $C_B \leftarrow C_B \cup \{t\}$;
+            \EndIf
+        \EndIf
+    \EndFor
+    \State candidate score $\leftarrow \text{Score}(C_A, C_B, G)$
+    \If{candidate score $>$ maxscore}
+        \State maxscore $\leftarrow$ candidate score
+        \State $S_A \leftarrow C_A, S_B \leftarrow C_B$
+    \EndIf
+\EndFor
+\State \Return $\left(S_A, S_B\right)$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Scoring a bipartition (used by FM algorithm to find the best bipartition)}
+\begin{algorithmic}
+\State \textbf{Input}: $\mathcal{G}$, set of gene trees
+\State \hskip1.5em $\left(S_A, S_B\right)$ A bipartition of taxon set
+\State \textbf{Output}: Bipartition Score of $\left(S_A, S_B\right)$
+\State score $\leftarrow 0$
+\For{each gene tree $g \in \mathcal{G}$}
+    \State $w_{\text{seu}} \leftarrow$ sum of weights of all quartets(resolved or unresolved) that are satisfied or violated by the bipartition $\left(S_A, S_B\right)$; // Detailed formulation in Section 2.5.2 in main text
+    \State $w_{sg} \leftarrow 0, w_{ug} \leftarrow 0$
+    \For{each node $u$ in $g$}
+        \State /* sum of weighta of the quartet set $S^{(g, u)}$ defined and formulated in detail in Section 2.5.1 in main text */
+        \State $w_{\text{sgu}} \leftarrow$ sum of weights of satisfied quartets with anchor at node $u$
+        \State /* sum of weighta of the quartet set $U^{(g, u)}$ defined and formulated in detail in Section 2.5.3 in main text */
+        \State $w_{\text{ugu}} \leftarrow$ sum of weights of unresolved satisfied or violated quartets at node $u$
+        \State $w_{sg} \leftarrow w_{sg} + w_{\text{sgu}}$
+        \State $w_{ug} \leftarrow w_{ug} + w_{\text{ugu}}$
+    \EndFor
+    \State score $\leftarrow$ score $+ 2 \cdot w_{sg} - w_{svu} + w_{ug}$; \quad // Derivation in Section 2.5
+\EndFor
+\State \Return score
+\end{algorithmic}
+\end{algorithm}
+
+\section{Additional details about score computation}
+
+We revisit some terminologies for the following subsections. Let $\mathcal{G}$ be a set of unrooted gene trees on taxa set $\mathcal{X}$. We allow the gene trees to be non-binary and incomplete (i.e., some taxa could be missing in a gene tree). Let $\mathcal{X}^{(g)}$ be the set of real taxa in a gene tree $g \in \mathcal{G}$. Let $(A, B)$ be the given bipartition for which we want to calculate the score for our FM algorithm. Let $R_A$ and $D_A$ be the sets of real and dummy taxa in $A$, respectively. Let $F_A$ be the set of all real taxa that are either in $R_A$ or under a dummy taxon $X \in D_A$, i.e., $F_A = \left\langle \bigcup_{X \in D_A} X_R \right\rangle \cup R_A$. We define $R_B, D_B, F_B$ similarly.
+
+Our algorithm assigns weight to each real taxon in $\mathcal{X}$ according to Equation 1 in the main paper. These weights are used to calculate the weights of quartets. Let $a, b, c, d \in \mathcal{X}$. We define the weight of an unordered pair of taxa, $p = \{a, b\}$ as $w(p) = w(a) \cdot w(b)$. We consider a quartet $q = ab|cd$ to be composed of 2 unordered pairs $\{a, b\}$ and $\{c, d\}$. We define its weight $w(ab|cd)$ to be $w(\{a, b\}) \cdot w(\{c, d\})$. We define the weight of a set $Q$ of quartets as $w(Q) = \sum_{q \in Q} w(q)$. We define the weight of a set of unordered pairs similarly.
+
+\subsection{Additional details about weight computation}
+
+Now, let $F_A^{(g, u, i)}$ be the set of real taxa of $F_A$ that are in $C_A^{(g, u)}, X_R^{(g, u, i)}$ be the set of real taxa in $C_i^{(g, u)}$ that are under a dummy taxon $X$ and $R_A^{(g, u, i)}$ be the set of real taxa of $R_A$ that are in $C_i^{(g, u)}$. We similarly define $F_B^{(g, u, i)}$ and $R_B^{(g, u, i)}$.
+
+\subsubsection{Computing $w\left(P A_{i, j}^{(g, u)}\right)$ and $w\left(P B_{i, j}^{(g, u)}\right)$}
+
+Let $P_1 = \left\{\{a, b\}: a \in F_A^{(g, u, i)}, b \in F_A^{(g, u, j)}\right\}$. Here $P_1$ contains all elements of $P A_{i, j}^{(g, u)}$. However, it also contains the unordered pairs $\{a, b\}$ where both $a$ and $b$ are under the same dummy taxon. Let $P_2 = \bigcup_{\mathrm{X} \in D_A} \left\{\{a, b\}: a \in X_R^{(g, u, i)}, b \in X_R^{(g, u, j)}\right\}$. It contains all pairs $\{a, b\}$ where $a \in F_A^{(g, u, i)}, b \in F_A^{(g, u, j)}$ and both $a$ and $b$ are under the same dummy taxon. Now, $P_2$ is a subset of $P_1$ and $P A_{i, j}^{(g, u)} = P \backslash Q$. Thus, $w\left(P A_{i, j}^{(g, u)}\right) = w\left(P_1\right) - w\left(P_2\right)$.
+
+Now $w\left(P_1\right) = w\left(F_A^{(g, u, i)}\right) w\left(F_A^{(g, u, j)}\right)$ and $w\left(P_2\right) = \sum_{X \in D_A} w\left(X_R^{(g, u, i)}\right) w\left(X_R^{(g, u, j)}\right)$. Thus, we obtain the formula of $w\left(P A_{i, j}^{(g, u)}\right)$ as follows.
+
+\[
+w\left(P A_{i, j}^{(g, u)}\right) = w\left(F_A^{(g, u, i)}\right) w\left(F_A^{(g, u, j)}\right) - \sum_{X \in D_A} w\left(X_R^{(g, u, i)}\right) w\left(X_R^{(g, u, j)}\right)
+\]
+
+We can compute $w\left(F_A^{(g, u, i)}\right)$ and $w\left(X_R^{(g, u, i)}\right)$ for all internal nodes $u$ of gene tree $g$ through a single post-order traversal of $g$ after rooting it arbitrarily. Similarly,
+
+\[
+w\left(P B_{i, j}^{(g, u)}\right) = w\left(F_B^{(g, u, i)}\right) w\left(F_B^{(g, u, j)}\right) - \sum_{X \in D_B} w\left(X_R^{(g, u, i)}\right) w\left(X_R^{(g, u, j)}\right)
+\]
+
+\subsubsection{Computing $w\left(P B_k^{(g, u)}\right)$}
+
+To compute $w\left(P B_k^{(g, u)}\right)$, we can follow a similar approach to that we used for $w\left(P B_{i, j}^{(g, u)}\right)$ with some minor modifications.
+
+\[
+\begin{aligned}
+w\left(P B_k^{(g, u)}\right) & = \frac{1}{2} \left( w\left(F_B^{(g, u, k)}\right) w\left(F_B^{(g, u, k)}\right) - w\left(R_B^{(g, u, k)}\right) - \sum_{X \in D_B} w\left(X_R^{(g, u, k)}\right) w\left(X_R^{(g, u, k)}\right) \right) \\
+& = \frac{1}{2} \left( w\left(F_B^{(g, u, k)}\right)^2 - w\left(R_B^{(g, u, k)}\right) - \sum_{X \in D_B} w\left(X_R^{(g, u, k)}\right)^2 \right)
+\end{aligned}
+\]
+This expression differs from that of $w\left(P B_{i, j}^{(g, u)}\right)$ for a few reasons. Unlike the case of $w\left(P B_{i, j}^{(g, u)}\right), \left(w\left(F_B^{(g, u, k)}\right)\right)^2$ also contains the sum of weights of $\{a, a\}$, where $a \in F_B^{(g, u, k)}$. We do not include $\{a, a\}$ by definition in $P B_k^{(g, u)}$ as a real taxon cannot participate twice in a quartet. The weights of $\{a, a\}$ where $a \in X_R$ for some $X \in D_B$ are already included in $\sum_{X \in D_B} \left(w\left(X_R^{(g, u, k)}\right)\right)^2$. Therefore, we need to subtract the weights of $\{a, a\}$, where $a$ is not under any dummy taxon, that is, $a \in R_B^{(g, u, k)}$. As $w(a) = 1$ for $a \in R_B^{(g, u, k)}$, the sum of the weights of these $\{a, a\}$ is given by $w\left(R_B^{(g, u, k)}\right)$. Moreover, since both taxa are from the same set, the weight of all unordered pairs is considered twice. Hence, by dividing the expression by 2, we obtain the final formula.
+
+\subsubsection{Efficient formulation of $w\left(S^{(g, u)}\right)$}
+
+We compute $w\left(S^{(g, u)}\right)$ efficiently in the following way. Let $w\left(P B^{(g, u)}\right) = \sum_k w\left(P B_k^{(g, u)}\right)$. For a certain $i, j$,
+
+\[
+\begin{aligned}
+& \sum_{k \neq i, j} w\left(S_{i, j, k}^{(g, u)}\right) = \sum_{k \neq i, j} w\left(P A_{i, j}^{(g, u)}\right) w\left(P B_k^{(g, u)}\right) \\
+& = w\left(P A_{i, j}^{(g, u)}\right) \sum_{k \neq i, j} w\left(P B_k^{(g, u)}\right) \\
+& = w\left(P A_{i, j}^{(g, u)}\right) \cdot \left( w\left(P B^{(g, u)}\right) - w\left(P B_j^{(g, u)}\right) - w\left(P B_j^{(g, u)}\right) \right)
+\end{aligned}
+\]
+
+Thus, we get
+
+\[
+\begin{aligned}
+& w\left(S^{(g, u)}\right) = \sum_{i<j} \sum_{k \neq i, j} w\left(S_{i, j, k}^{(g, u)}\right) \\
+& = \sum_{i<j} w\left(P A_{i, j}^{(g, u)}\right) \cdot \left( w\left(P B^{(g, u)}\right) - w\left(P B_j^{(g, u)}\right) - w\left(P B_j^{(g, u)}\right) \right)
+\end{aligned}
+\]
+
+\subsubsection{Computing $w\left(P A^{(g)}\right)$ and $w\left(P B^{(g)}\right)$}
+
+Similar to 2.1.2, $P A^{(g)}$ contains pairs $\{a, b\}$ where both $a, b$ are from the same set $\mathcal{X}^{(g)} \cap F_A$. Therefore,
+
+\[
+w\left(P A^{(g)}\right) = \frac{1}{2} \left( w\left(F_A \cap \mathcal{X}^{(g)}\right)^2 - w\left(R_A \cap \mathcal{X}^{(g)}\right) - \sum_{X \in D_A} w\left(X_R \cap \mathcal{X}^{(g)}\right)^2 \right)
+\]
+
+Similarly,
+
+\[
+w\left(P B^{(g)}\right) = \frac{1}{2} \left( w\left(F_B \cap \mathcal{X}^{(g)}\right)^2 - w\left(R_B \cap \mathcal{X}^{(g)}\right) - \sum_{X \in D_B} w\left(X_R \cap \mathcal{X}^{(g)}\right)^2 \right)
+\]
+
+\subsubsection{Efficient formulation of $w\left(U^{(g, u)}\right)$}
+
+\[
+w\left(U^{(g, u)}\right) = \sum_{i<j} w\left(P A_{i, j}^{(g, u)}\right) \left( \sum_{k<l ; k, l \notin \{i, j\}} w\left(P B_{k, l}^{(g, u)}\right) \right)
+\]
+
+Let $S B_i^{(g, u)} = \sum_{k<l ; (k=i) \vee (l=i)} w\left(P B_{k, l}^{(g, u)}\right)$ and $S B^{(g, u)} = \sum_{k<l} w\left(P B_{k, l}^{(g, u)}\right)$. Using these definitions, we can refine the expression as follows.
+
+\[
+\sum_{k<l ; k, l \notin \{i, j\}} w\left(P B_{k, l}^{(g, u)}\right) = S B^{(g, u)} - S B_i^{(g, u)} - S B_j^{(g, u)} + w\left(P B_{i, j}^{(g, u)}\right)
+\]
+
+Thus, we obtain the following equation.
+
+\[
+\begin{aligned}
+& w\left(U^{(g, u)}\right) = \sum_{i<j} w\left(P A_{i, j}^{(g, u)}\right) \left( \sum_{k<l ; k, l \notin \{i, j\}} w\left(P B_{k, l}^{(g, u)}\right) \right) \\
+& = \sum_{i<j} w\left(P A_{i, j}^{(g, u)}\right) \left( S B^{(g, u)} - S B_i^{(g, u)} - S B_j^{(g, u)} + w\left(P B_{i, j}^{(g, u)}\right) \right)
+\end{aligned}
+\]
+
+\subsection{Weight normalization}
+
+Suppose a dummy taxon $X$ has $k$ real taxon under it. As gene trees contain only real taxa, we consider $X$ to be involved in a quartet if any of the real taxa under it participates in that quartet. As a result, $X$ can form $k$ times as many quartets as a real taxon $a \in R_A \cup R_B$ with the real taxa in a set $R \subseteq \mathcal{X}$ (assuming $a \notin R, X_R \cap R = \emptyset$). Since our scoring is based on the sum of weights of quartets (described in Section 2.5 of the main paper), a dummy taxon gets prioritized in maximizing the score if no normalization is done (that is, all real taxa are assigned unit weight). Therefore, we attempt to ensure that a real taxon and a dummy taxon contribute equally to the score calculation.
+
+For weight normalization, we can follow two approaches. One is to simply assign equal weights to all the real taxa under a dummy taxon. That is, if a dummy taxon $d$ has $k$ real taxa under it, all of them are assigned weight $\frac{1}{k}$. Another approach is to assign weights according to the "dummy taxon tree structure" described in Section 2.3 of the main paper. These weighting mechanisms (uniform and non-uniform normalizations) were proposed and used in TREE-QMC [Han and Molloy, 2023]. The latter approach (i.e., non-uniform normalization) produced superior results in all our experiments and thus further supports the observations made in the TREE-QMC study.
+
+\subsection{Gain calculation}
+
+We recall that the wQFM algorithm iteratively improves bipartition by transferring taxa from one partition to the opposite. The details of the procedure is described in [Reaz et al., 2014]. For a taxon $a \in A \cup B$, the corresponding gain, $G_a$, is the change in the score if $a$ is transferred to the opposite partition. That is, if $a \in A, G_a = \text{Score}(A \backslash \{a\}, B \cup \{a\}, \mathcal{G}) - \text{Score}(A, B, \mathcal{G})$. Our algorithm requires us to calculate the gains of all taxa present in $A$ and $B$. To do so, we calculate the change of $w\left(S^{(g, u)}\right)$ at each internal node $u$ for each taxon $a \in A \cup B$ if it is transferred to the opposite partition. We also calculate the change of $w\left(U^{(g, u)}\right)$ at each polytomy node $u$ and the change of $w\left(S^{(g)} \cup V^{(g)} \cup U^{(g)}\right)$. From there, we determine the gain for each taxon.
+
+We can be more efficient when dealing with gains of real taxa. We utilize the fact that the change in $w\left(S^{(g, u)}\right)$ is the same for transferring any $a \in R_A$ within a component $C_i^{(g, u)}$ because all such $a$ has a unit weight. Thus, we visit each internal node $u$, calculate, and store the change of $w\left(S^{(g, u)}\right)$ for each of its components. Then, these changes can be accumulated using a linear graph traversal to compute $G_a$ for all $a \in R_A$. Similarly, we can compute $G_a$ for all $a \in R_B$.
+
+\section{Time complexity}
+
+Let $n$ be the number of taxa present in the gene trees, $r$ and $d$ be the number of real taxa and dummy taxa present in a subproblem, respectively. Let $\langle A, B \rangle$ be the initial bipartition for the subproblem. Then, $r = \left| R_A \right| + \left| R_B \right|$ and $d = \left| D_A \right| + \left| D_B \right|$. We assume that the degree of the internal nodes is bounded by a constant $c$.
+
+First, we can compute $w\left(F_A^{(g, u, i)}\right), w\left(F_B^{(g, u, i)}\right)$ and $w\left(X_R^{(g, i)}\right)$ for all $u$ in $O(n d)$ for a tree $g$. Therefore, for $k$ gene trees, the time complexity is $O(k n d)$.
+
+Then, for an internal node $u$ of a gene tree $g$, we can compute $w\left(P A_{i, j}^{(g, u)}\right), w\left(P B_{i, j}^{(g, u)}\right)$, $w\left(P B_k^{(g, u)}\right), \sum_{X \in D_A} w\left(X_R^{(g, u, i)}\right) w\left(X_R^{(g, u, j)}\right)$ and $\sum_{X \in D_B} w\left(X_R^{(g, u, i)}\right) w\left(X_R^{(g, u, j)}\right)$ for $1 \leq i, j, k \leq \operatorname{deg}(u)$ in $O\left(\operatorname{deg}(u)^2 d\right)$. Thus, for the whole set of gene trees, we can perform this computation in $O\left(c^2 d n k\right)$ time. After that, we can calculate $w\left(S^{(g, u)}\right)$ in $O(\operatorname{deg}(u))$. Then, $\sum_{g \in \mathcal{G}} w\left(S^{(g, u)}\right)$ can be computed in $O(c n k)$.
+
+Now, we can calculate $w\left(S^{(g)} \cup V^{(g)} \cup U^{(g)}\right)$ from $\mathcal{X}^{(g)}$ in $O(n)$ complexity. Overall, it takes $O(n k)$ for $k$ gene trees. We can compute $w\left(U^{(g, u)}\right)$ in $O\left(\operatorname{deg}(u)^2\right)$. Thus, $\sum_{g \in \mathcal{G}} \sum_{u \in g} w\left(U^{(g, u)}\right)$ can be computed in $O\left(c^2 n k\right)$ time.
+
+The complexity of gain computation is dominated by the gain computation of dummy taxa. We can calculate gains of all dummy taxa in $O\left(c^2 n k d\right)$. An iteration of the FM algorithm consists of transferring $r$ real taxa and $d$ dummy taxa. After each transfer, the gain is recalculated. Therefore, the complexity of an iteration is $O\left((r + d) c^2 n k d\right)$. The FM algorithm may take multiple iterations before finding the final bipartition where the maximum cumulative gain is non-negative. We assume that the number of iterations to find the final bipartition is bounded by a parameter $\alpha$. Empirically, we have found $\alpha$ to be a very small number $(\alpha \leq 5)$ even though we experimented exhaustively with a varying number of taxa, ranging from 37 to 2000, and other model parameters.
+
+Therefore, given a bipartition, the total time complexity for improving the bipartition through the FM algorithm is $O\left(\alpha (r + d) c^2 n k d\right)$.
+
+Now, for the initial bipartition, the creation of the greedy consensus tree from the gene trees at the beginning of the algorithm requires $O\left(n^2 k\right)$ time. We need to consider at most $O(n)$ edges of the consensus tree for a subproblem where we construct candidate initial bipartitions from each of the edges and calculate the score for each of them. Each score calculation step takes $O\left(c^2 n k d\right)$ time. Therefore, creating an initial bipartition takes $O\left(c^2 n^2 k d\right)$ time in total.
+
+Thus, handling each subproblem takes $O\left(c^2 n^2 k d + \alpha (r + d) c^2 n k d\right)$ time. Since, in the worst case, $O(r + d) = O(n)$, we have the final time complexity of $O\left(\alpha c^2 n^2 k d\right)$ for a subproblem.
+
+\subsection{Time complexity for fully resolved gene trees with the assumption of balanced partitioning}
+
+For unrooted fully resolved or binary gene trees, $c = 3$. We consider the case where each bipartition is made as evenly as possible. That is, if $|A| + |B|$ is even, then $|A| = |B|$. Otherwise, $|A| - |B| = \pm 1$. Then, the height of the subproblem tree (Example in Figure 1) is $O(\log n)$. Since a dummy taxa is introduced at each level, a subproblem can have at most $O(\log n)$ dummy taxa, that is $d = O(\log n)$. Therefore, the complexity of handling a subproblem is $O\left(\alpha n^2 k \log n\right)$. We note that each divide step in our algorithm constructs an edge of the output species tree in the corresponding conquer step. Therefore, our algorithm has $\Theta(n)$ divide steps. Each divide step increases the number of subproblems by 1. Therefore, we have $\Theta(n)$ subproblems, and the total time complexity is $O\left(\alpha n^3 k \log n\right)$ or $O\left(n^3 k \log n\right)$ since empirically $\alpha$ is very small as mentioned before.
+
+\subsection{Time complexity without the assumptions}
+
+We have proved the time complexity of $O\left(n^3 k \log n\right)$ under the assumptions of balanced bipartitions and fully resolved gene trees. Without the assumption of balanced partitioning, we obtain a complexity of $O\left(n^4 k\right)$. Finally, the algorithm may experience a notable increase in running time for gene trees with polytomies, particularly when confronted with a large amount of polytomy. However, we do not observe a drastic rise in time in most of the cases, as shown in Table 4. Nevertheless, we can readily address the issue of polytomy by resolving them and then applying wQFM-TREE on fully resolved gene trees. This approach yields equivalent performance to wQFM-TREE without resolving polytomy (Figure 4).
+
+\end{document}

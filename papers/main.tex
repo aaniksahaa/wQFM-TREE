@@ -1,0 +1,134 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{hyperref}
+
+\title{wQFM-TREE: highly accurate and scalable quartet-based species tree inference from gene trees}
+\author{
+  Abdur Rafi$^{1,\pm,\dagger}$ \and Ahmed Mahir Sultan Rumi$^{1,\pm,\dagger}$ \and Sheikh Azizul Hakim$^{1,\dagger}$ \and Sohaib$^{1,\dagger}$ \and Md. Toki Tahmid$^{1,\dagger}$ \and Rabib Jahin Ibn Momin$^{1,\dagger}$ \and Tanjeem Azwad Zaman$^{1,\dagger}$ \and Rezwana Reaz$^{1,\dagger}$ \and Md. Shamsuzzoha Bayzid$^{1,*,\dagger}$ \\
+  \small{$^1$Department of Computer Science and Engineering, Bangladesh University of Engineering and Technology, Dhaka 1205, Bangladesh} \\
+  \small{$^*$Corresponding author. Department of Computer Science and Engineering, Bangladesh University of Engineering and Technology, ECE Building, West Palasi, Dhaka, Bangladesh. E-mail: shams\_bayzid@cse.buet.ac.bd} \\
+  \small{$\pm$ equal contribution}
+}
+\date{Advance Access Publication Date: 13 March 2025}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\textbf{Motivation:} Summary methods are becoming increasingly popular for species tree estimation from multi-locus data in the presence of gene tree discordance. Accurate Species TRee Algorithm (ASTRAL), a leading method in this class, solves the Maximum Quartet Support Species Tree problem within a constrained solution space, while heuristics like Weighted Quartet Fiduccia-Mattheyses (wQFM) and Weighted Quartet MaxCut (wQMC) use weighted quartets and a divide-and-conquer strategy. Recent studies showed wQFM to be more accurate than ASTRAL and wQMC, though its scalability is hindered by the computational demands of explicitly generating and weighting $\binom{n}{4}$ quartets. Here, we introduce wQFM-TREE (wQFM applied directly to gene trees), which employs an innovative technique to perform the same heuristic search as wQFM while eliminating the computational bottleneck of decomposing input gene trees into their induced quartets. With a time complexity of $O(n^3 k \log n)$ under certain assumptions (where $n$ is the number of taxa and $k$ is the number of gene trees), wQFM-TREE significantly improves the running time of wQFM, making it scalable to datasets with thousands of taxa and genes.
+\end{abstract}
+
+\section*{Materials and methods}
+
+We begin with a brief overview of the original wQFM. We next describe our proposed techniques introduced in wQFM-TREE that enable its direct application to gene trees.
+
+\subsection*{Background on wQFM}
+
+Given a set $\mathcal{G}=\{g_1, g_2, \ldots, g_k\}$ of $k$ gene trees on taxa set $\mathcal{X}$, wQFM computes weights for every possible quartet $ab|cd$, where $ab|cd$ denotes the unrooted quartet tree with leaf set $a, b, c, d \in \mathcal{X}$ in which the pair $a, b$ is separated from the pair $c, d$ by an edge. These weighted quartets are used in a divide-and-conquer algorithm to construct a species tree. In this approach, the algorithm first produces a bipartition of $\mathcal{X}$ based on the weighted quartets using the FM heuristic (Fiduccia and Mattheyses 1982), recursively calculates rooted trees on each subset of the bipartition, and then combines the rooted trees to form a complete species tree on the full taxa set (Supplementary Fig. 1).
+
+Central to wQFM's search algorithm is generating $k\binom{n}{4}$ quartets induced by the input gene trees, computing the weights of these induced quartets based on gene tree frequency, and scoring a candidate bipartition based on the weights of the input quartets that are consistent and conflicting with that particular bipartition. Generating weighted quartets (and saving them to a file using appropriate I/O operations) is an extremely time and memory-consuming step and constitutes a significant portion of wQFM's overall runtime. This weighted quartet generation step has actually been the main limitation for the broader application of wQFM to larger datasets.
+
+Each divide step of the wQFM algorithm splits the set of taxa into two disjoint subsets (a bipartition of the taxa set, each representing a subproblem). A unique "dummy taxon" is added to both of the subsets so that the solutions to the subproblems can be combined within a divide-and-conquer framework (Supplementary Fig. 1). The technique to find a bipartition begins with an initial bipartition, followed by a heuristic iterative strategy to improve it. Within this iterative process, each iteration begins with the bipartition from the previous iteration and tries to improve it by moving taxa from one partition to another. The iterative improvement strategy is described in detail in Reaz et al. (2014). The effectiveness of such a move, which we call "Gain", is quantified by the differences in bipartition scores before and after a taxon transfer. Mim et al. (2023) showed that given $\Theta(n^4)$ quartets, one iteration of this technique to improve an initial bipartition takes $O(n^4)$ time, which is very high. Producing an initial bipartition at every bipartitioning step is also a highly time-consuming process. The computation of the initial bipartition entails working with sorted weighted quartets, aiming to identify a bipartition consistent with quartets of substantial weights. Sorting $\Theta(n^4)$ weighted quartets and selecting a good initial bipartition accordingly is a highly time-consuming step.
+
+\subsection*{Overview of wQFM-TREE}
+
+Han and Molloy (2023) developed an innovative approach to applying the QMC algorithm directly to gene trees. Building on their concept, we have developed new techniques to enable QFM to operate on gene trees without requiring decomposition into induced quartets. While our overall framework draws inspiration from Han and Molloy (2023), the underlying algorithmic and combinatorial methodologies differ significantly. This is because FM, which is used in QFM and wQFM, and MaxCut (used in QMC) are fundamentally distinct algorithms, requiring specialized theoretical foundations and algorithmic adaptations to extend QFM and wQFM for direct application to gene trees. For example, unlike QMC, QFM and wQFM begin each divide step with an initial bipartition, which is iteratively refined using the FM algorithm. In the original QFM/wQFM framework, constructing the initial bipartition involves processing sorted weighted quartets to identify a bipartition that aligns with quartets of significant weights. However, generating the $\Theta(n^4)$ weighted quartets, sorting them, and subsequently determining a suitable initial bipartition is an extremely time-intensive process. In wQFM-TREE, we utilized a consensus tree-based approach to find an initial bipartition directly from gene trees. In QMC and TREE-QMC, score calculation relies on determining the number of "good" and "bad" edges in the "quartet graph" (Snir and Rao 2012, Han and Molloy 2023), with TREE-QMC introducing an innovative technique to compute these directly from gene trees. In contrast, QFM and wQFM do not utilize a quartet graph. Instead, the underlying FM algorithm requires computing the score of candidate bipartitions during the iterative improvement of the initial bipartition. To address this, our proposed wQFM-TREE method introduces novel algorithmic techniques to directly derive these scores from the gene trees, eliminating the time-consuming step of generating and sorting quartets. Consequently, the approaches and techniques in wQFM-TREE are substantially different from those employed in TREE-QMC.
+
+In particular, wQFM-TREE employs the following two key strategies: (i) using a gene tree consensus-based method to compute an initial bipartition for each divide step (see Section 2.4 and Algorithm 1 in Supplementary Section 1) and (ii) utilizing combinatorial and graph theoretic techniques to compute the scores of candidate bipartitions (Section 2.5 and Algorithm 2 in Supplementary Section 1) directly from gene trees, thereby eliminating the need for generating and computing the weights of the induced quartets. Both of these strategies heavily depend on a certain tree structure that we define for dummy taxa (discussed in Section 2.3) in our proposed method. One iteration of the iterative improvement strategy for finding a bipartition takes $O(n^2 k \log n)$ with our proposed techniques instead of the $O(n^4)$ runtime of the original wQFM, with certain assumptions on subproblem sizes (details in Supplementary Section 3).
+
+\subsection*{Tree structure of a dummy taxon and weighting scheme}
+
+In our divide step, we create a bipartition $(A, B)$ of the taxa set and create two new subproblems, one with taxa set $A \cup \{X_1\}$ and the other with taxa set $B \cup \{X_2\}$, where $X_1$ and $X_2$ are dummy taxa. Note that, unlike the original wQFM, we differentiate between the dummy taxa added to the two subproblems. $X_1$ essentially represents the taxa in $B$, and $X_2$ represents the taxa in $A$. We model $X_1$ and $X_2$ as rooted tree structures, where the children of the roots are the taxa in $B$ and $A$, respectively. If $A, B$ contain any dummy taxon, they will appear as subtrees in the tree structure of $X_2, X_1$, respectively, resulting in a recursive tree structure (Fig. 1). Therefore, the tree representation of a dummy taxon $X$ is a rooted tree with height $>1$. The leaves of this tree are real taxa, and any internal node is a dummy taxon, which was introduced in an earlier subproblem. We say that the leaves or real taxa in the tree structure of $X$ are "under dummy taxon" $X$ and denote this set of real taxa under $X$ as $X_R$.
+
+Now we describe how we assign weight $w(a)$ to a taxon $a$ that is used to compute the score of a candidate bipartition as described in Section 2.5. We assign unit weight to the real taxa that are not under any dummy taxa of the current subproblem. Note that the contribution of a dummy taxon to the score of a candidate bipartition should be equal to that of a real taxon as both can be considered equivalent in a subproblem. Therefore, for a dummy taxon $X$, we assign fractional weights to the real taxa in $X_R$ in such a way that $w(X) = \sum_{a \in X_R} w(a) = 1$. We refer to this assignment as weight normalization, and we describe our motivation behind it in more detail in Supplementary Section 2.3. The normalization process is as follows. We first assign weights to the edges of the tree structure corresponding to $X$. We then use these edge weights to calculate $w(a) (a \in X_R)$. Refer to Fig. 1 for an example. The weight of an edge $(u, v)$ with $u$ as the parent node is defined as the number of children of $u$. Let $p_a$ be the set of edges in the path from root to $a$. We define $w(a)$ as $\left( \prod_{(u,v) \in p_a} w_{(u,v)} \right)^{-1}$. Therefore, for any real taxon $a$, $w(a)$ is defined as follows:
+\[
+w(a) = \begin{cases}
+\left( \prod_{(u,v) \in p_a} w_{(u,v)} \right)^{-1} & \text{if } a \text{ is under a dummy taxon} \\
+1 & \text{otherwise}
+\end{cases}
+\]
+We note that this weighting mechanism was originally proposed and used in the TREE-QMC method (Han and Molloy 2023) for weighting quartets to normalize the "Quartet Graph". We use this weighting mechanism with a slightly different motivation than the TREE-QMC method for the following use cases (i) to construct initial bipartition from consensus tree of gene trees and (ii) to calculate the score of a candidate bipartition using weighted satisfied and violated quartets.
+
+\subsection*{Computing an initial bipartition for a divide step}
+
+Let $S$ be the set of taxa of a subproblem in a divide step of our method. We need to create an initial bipartition of $S$, which will subsequently be improved in an iterative manner. To do so, we create and utilize a greedy consensus tree of the input gene trees, also known as the majority rule extended tree, using PAUP v4.0b10 (Swofford 2002). This works even for incomplete gene trees, which are very common in real datasets.
+
+Each bipartition $(A, B)$ corresponding to each edge of the consensus tree defines a bipartition $(S_A, S_B)$ of $S$ as follows. $S$ may contain both real and dummy taxa. The real taxa in $S$ are partitioned according to $(A, B)$ meaning that if a taxon $s \in A$, then $s \in S_A$. We now describe how a dummy taxon $X$ in $S$ is assigned to a partition ($S_A$ or $S_B$). We compute the weight of each taxon in $X_R$ (the set of real taxa present in the tree structure of $X$) as described in Section 2.3. $X_R$ can be partitioned to $S_A$ and $S_B$ according to $(A, B)$, similar to how we partition the real taxa in $S$ with respect to $(A, B)$. Next, we assign $X$ to the partition $S_A$ if the sum of weights of the real taxa in $X_R$ that belong to $A$ is greater than the sum of weights of the real taxa in $X_R$ that belong to $B$. Otherwise, we assign $X$ to the partition $S_B$. Thus, we find a bipartition $(S_A, S_B)$ of $S$ with respect to $(A, B)$ in the consensus tree. Next, we score $(S_A, S_B)$ using the scoring scheme described in Section 2.5. We find and score all such bipartitions of $S$ corresponding to the bipartions in the consensus tree. We choose the bipartition of $S$ with the highest score as the initial bipartition. The pseudocode for this algorithm is presented as Algorithm 1 in the Supplementary Material.
+
+\subsection*{Scoring a candidate bipartition directly from gene trees}
+
+Let $\mathcal{G}$ be a set of unrooted gene trees on taxa set $\mathcal{X}$. We allow the gene trees to be non-binary and incomplete (i.e. some taxa could be missing in a gene tree). Let $\mathcal{X}^{[g]}$ be the set of real taxa in a gene tree $g \in \mathcal{G}$. Let $(A, B)$ be the given bipartition. Let $R_A$ and $D_A$ be the sets of real and dummy taxa in $A$, respectively. Let $F_A$ be the set of all real taxa that are either in $R_A$ or under a dummy taxon $X \in D_A$, i.e. $F_A = (\cup_{X \in D_A} X_R) \cup R_A$. We define $R_B, D_B, F_B$ similarly.
+
+Our algorithm assigns weight to each real taxon in $\mathcal{X}$ according to (1). These weights are used to calculate the weights of quartets. Let $a, b, c, d \in \mathcal{X}$. We define the weight of an unordered pair of taxa, $p = \{a, b\}$ as $w(p) = w(a) \cdot w(b)$. We consider a quartet $q = ab|cd$ to be composed of two unordered pairs $\{a, b\}$ and $\{c, d\}$. We define its weight $w(ab|cd)$ to be $w(\{a, b\}) \cdot w(\{c, d\})$. We define the weight of a set $Q$ of quartets as $w(Q) = \sum_{q \in Q} w(q)$. We define the weight of a set of unordered pairs similarly.
+
+Given a bipartition $(A, B)$, each quartet $ab|cd$ where no two taxa in $\{a, b, c, d\}$ are under the same dummy taxon of the current subproblem, can be classified as one of the following three types.
+\begin{enumerate}
+    \item \textbf{Satisfied:} where either $\{a, b\} \subseteq F_A$ and $\{c, d\} \subseteq F_B$ or $\{a, b\} \subseteq F_B$ and $\{c, d\} \subseteq F_A$
+    \item \textbf{Deferred:} where $P \subseteq F_A$ or $P \subseteq F_B$, $P \subseteq \{a, b, c, d\}$, and $|P| \geq 3$.
+    \item \textbf{Violated:} all other quartets.
+\end{enumerate}
+Note that we do not consider the quartets that have at least two taxa under the same dummy taxon. This is because although a dummy taxon may have multiple real taxa under it, it is considered a single taxon for the current subproblem. Therefore, a dummy taxon should not contribute more than once in a quartet. In the original wQFM, we do not need to consider this extra condition as it enumerates all the quartets and updates the set of considered quartets for each subproblem in the divide step.
+
+We note that if a gene tree $g$ is non-binary, then for some $a, b, c, d \in \mathcal{X}^{[g]}$, a quartet structure may not be formed/resolved (i.e. there is no branch separating two taxa from the other two). We call such quartets "unresolved".
+
+Let $S^{[g]}, V^{[g]}$ be the sets of satisfied and violated resolved quartets respectively in a gene tree $g \in \mathcal{G}$. Then the score $\text{Score}(A, B, \mathcal{G})$ of a candidate bipartition $(A, B)$ with respect to $\mathcal{G}$ is defined as $\text{Score}(A, B, \mathcal{G}) = \sum_{g \in \mathcal{G}} (w(S^{[g]}) - w(V^{[g]}))$.
+Let $U^{[g]}$ be the set of satisfied or violated unresolved quartets. Since $S^{[g]}, V^{[g]}, U^{[g]}$ are disjoint sets, $w(S^{[g]} \cup V^{[g]} \cup U^{[g]}) = w(S^{[g]}) + w(V^{[g]}) + w(U^{[g]})$. We can rewrite $(w(S^{[g]}) - w(V^{[g]}))$ as $(2w(S^{[g]}) - (w(S^{[g]}) + w(V^{[g]}) + w(U^{[g]})) + w(U^{[g]})). Thus, we get the following equation:
+\[
+\text{Score}(A, B, \mathcal{G}) = \sum_{g \in \mathcal{G}} (2w(S^{[g]}) - w(S^{[g]} \cup V^{[g]} \cup U^{[g]}) + w(U^{[g]}))
+\]
+We do such restructuring of this equation for computational efficiency. Calculating $w(S^{[g]})$ and $w(V^{[g]})$ separately requires traversing each internal node of the tree $g$ and perform certain calculations (details in Section 2.5.1 for $w(S^{[g]})$). However, $w(S^{[g]} \cup V^{[g]} \cup U^{[g]})$ can be calculated directly from $\mathcal{X}^{[g]}$ (details in Section 2.5.2). Hence, by eliminating $w(V^{[g]})$ and incorporating $w(S^{[g]} \cup V^{[g]} \cup U^{[g]})$ into the equation, the computation becomes notably faster in practice. Although we have to compute $w(U^{[g]})$ in this approach, it is still more efficient because calculating $w(U^{[g]})$ requires us to consider only the polytomy nodes (details in Section 2.5.3). The pseudocode for scoring a candidate bipartition is presented as Algorithm 2 in the Supplementary Material.
+
+\subsubsection*{Computing $w(S^{[g]})$, the sum of weights of satisfied resolved quartets in a gene tree $g$}
+
+Let $u$ be an internal node in $g$ and $\deg(u)$ denote the degree of $u$. Removing $u$ will create $\deg(u)$ components of $g$. We define $C^{[g,u]}$ to be the set of these components and use $C_i^{[g,u]}, 1 \leq i \leq \deg(u)$ to refer to the $i^{\text{th}}$ component. We say, a real taxon $a \in C_i^{[g,u]}$ if $a$ is in component $C_i^{[g,u]}$.
+
+The subtree of a fully resolved tree restricted to a quartet exhibits two degree-three nodes. We refer to these nodes as "anchors" of the quartet on that tree. Now, let $S^{[g,u]}$ be the set of all resolved satisfied quartets $ab|cd$ such that $a, b \in F_A$, $c, d \in F_B$, and $a, b$ belong to two distinct components in $C^{[g,u]}$ and both $c, d$ pertain to a third component of $C^{[g,u]}$. We observe that $S^{[g,u]}$ actually contains the quartets, which have $u$ as the anchor directly connected to $a, b$ in the quartet tree. All such sets $S^{[g,u]}$, across every internal node $u$, form a partition of $S^{[g]}$ (Lemma 1 in Supplementary Section 2). As a result, $w(S^{[g]}) = \sum_u w(S^{[g,u]})$.
+
+To compute $w(S^{[g,u]})$, we further split $S^{[g,u]}$ into disjoint sets $S_{i,j,k}^{[g,u]}, 1 \leq i, j, k \leq \deg(u), i < j, k \neq i, j$. $S_{i,j,k}^{[g,u]}$ contains the satisfied quartets $ab|cd$ where $a, b \in F_A, a \in C_i^{[g,u]}, b \in C_j^{[g,u]}$ and $c, d \in F_B, c, d \in C_k^{[g,u]}$. Let $PA_{i,j}^{[g,u]}$ be the set of unordered pairs $\{a, b\}$ where $a, b$ are not under the same dummy taxon, $a, b \in F_A$, and $a \in C_i^{[g,u]}, b \in C_j^{[g,u]}$. Similarly, let $PB_k^{[g,u]}$ be the set of unordered pairs $\{c, d\}$ where $c, d$ are not under the same dummy taxon, $c, d \in F_B$, and $c, d \in C_k^{[g,u]}, c \neq d$. Therefore, for a quartet $ab|cd \in S_{i,j,k}^{[g,u]}$, the unordered pair $\{a, b\} \in PA_{i,j}^{[g,u]}$ and the unordered pair $\{c, d\} \in PB_k^{[g,u]}$ where $k \neq i, j$. As a result, $w(S_{i,j,k}^{[g,u]}) = w(PA_{i,j}^{[g,u]}) w(PB_k^{[g,u]})$. Then we compute
+\[
+w(S^{[g,u]}) = \sum_{i < j} \sum_{k \neq i, j} S_{i,j,k}^{[g,u]}
+\]
+We restructure this expression for efficient implementation, which is described in Supplementary Section 2.1.3. We can calculate $w(PA_{i,j}^{[g,u]}), w(PB_k^{[g,u]})$ without enumerating the sets $PA_{i,j}^{[g,u]}, PB_k^{[g,u]}$ (see Supplementary Section 2.1 for details). Thus, for a given candidate bipartition $(A, B)$, we can compute the weight of the satisfied resolved quartets in $g$ without explicitly enumerating its induced set of quartets.
+
+\subsubsection*{Computing $w(S^{[g]} \cup V^{[g]} \cup U^{[g]})$, the sum of weights of satisfied or violated quartets in $g$}
+
+We notice that, each quartet $q = ab|cd \in (S^{[g]} \cup V^{[g]} \cup U^{[g]})$ has two taxa from $F_A$, the other two from $F_B$ and no pair of taxon from $\{a, b, c, d\}$ is under the same dummy taxon. Let $PA^{[g]}$ be the set of unordered pairs $\{a, b\}$ where $a, b$ are not under the same dummy taxon and $a, b \in F_A \cap \mathcal{X}^{[g]}$ (the intersection with $\mathcal{X}^{[g]}$ allows our computation to be applicable for incomplete gene trees where some taxa are missing). Similarly, let $PB^{[g]}$ be the set of pairs $\{c, d\}$ where $c, d$ are not under the same dummy taxon and $c, d \in F_B \cap \mathcal{X}^{[g]}$. Each pair $\{a, b\} \in PA^{[g]}$ forms one quartet with each pair $\{c, d\} \in PB^{[g]}$. Thus, we obtain $w(S^{[g]} \cup V^{[g]} \cup U^{[g]}) = w(PA^{[g]}) \cdot w(PB^{[g]})$. We provide the expressions for calculating $w(PA^{[g]})$ and $w(PB^{[g]})$ in Supplementary Section 2.1.4.
+
+\subsubsection*{Computing $w(U^{[g]})$, the sum of weights of unresolved satisfied or violated quartets in $g$}
+
+For each $ab|cd \in U^{[g]}$, we can find only one internal node $u$ in $g$ such that $a, b, c, d$, all come from four different components in $C^{[g,u]}$ and $a, b \in F_A, c, d \in F_B$. Let $U^{[g,u]}$ be the set of these quartets. We obtain $w(U^{[g]})$ by adding $w(U^{[g,u]})$ for each polytomy node $u$.
+
+Similar to computing $w(S^{[g,u]})$, we further split $U^{[g,u]}$ into disjoint sets $U_{i,j,k,l}^{[g,u]}, 1 \leq i, j, k, l \leq \deg(u), i < j, k < l, k \neq i, j; l \neq i, j$. $U_{i,j,k,l}^{[g,u]}$ contains the unresolved quartets $ab|cd$ of $U^{[g,u]}$ where $a \in C_i^{[g,u]}, b \in C_j^{[g,u]}, c \in C_k^{[g,u]}$, and $d \in C_l^{[g,u]}$. Let $PB_{k,l}^{[g,u]}$ be the set of unordered pairs $\{c, d\}$, where $c, d$ are not under the same dummy taxon, $c, d \in F_B$, and $c \in C_k^{[g,u]}, d \in C_l^{[g,u]}$. Note that each pair $\{a, b\} \in PA_{i,j}^{[g,u]}$ forms an unresolved quartet with each pair $\{c, d\} \in PB_{k,l}^{[g,u]}$ when $k < l, k \neq i, j; l \neq i, j$ and these quartets form the set $U_{i,j,k,l}^{[g,u]}$. Therefore $w(U_{i,j,k,l}^{[g,u]}) = w(PA_{i,j}^{[g,u]}) w(PB_{k,l}^{[g,u]})$. Then
+\[
+w(U^{[g,u]}) = \sum_{i < j} \sum_{k < l, k \neq i, j; l \neq i, j} w(U_{i,j,k,l}^{[g,u]})
+\]
+\[
+= \sum_{i < j} w(PA_{i,j}^{[g,u]}) \left( \sum_{k < l, k \neq i, j; l \neq i, j} w(PB_{k,l}^{[g,u]}) \right)
+\]
+We employ this equation to derive an expression for $w(U^{[g,u]})$ that enables efficient implementation (Supplementary Section 2.1.5). We present an example showing detailed calculations of our scoring method in Supplementary Section 2.2.
+
+\subsubsection*{Gain calculation}
+
+Note that the wQFM algorithm improves a bipartition iteratively by transferring taxa from one partition to the opposite, and the effectiveness of a move is quantified by "Gain", which is the change of scores after transferring a taxon. The procedure for calculating gains using our scoring method is outlined in Supplementary Section 2.4.
+
+\subsection*{Time complexity}
+
+Assuming that the input gene trees are fully resolved or polytomies are resolved arbitrarily, and the subproblems are produced in a perfectly balanced fashion, wQFM-TREE can run in $O(n^3 k \log n)$ time, where $n$ and $k$ denote the number of taxa and gene trees, respectively. A detailed time complexity analysis is presented in Section 3 of the Supplementary Materials. We note that TREE-QMC has a time complexity of $O(n^3 k)$ considering balanced subproblems (TREE-QMC needs to resolve polytomies arbitrarily).
+
+\section*{Supplementary data}
+Supplementary data are available at Bioinformatics Advances online.
+
+\section*{Conflict of interest}
+None declared.
+
+\section*{Funding}
+This work was partially supported by the Basic Research Grant at Bangladesh University of Engineering and Technology (BUET) to M.S.B. and R.R.
+
+\section*{Data availability}
+wQFM-TREE is freely available in open source form at \url{https://github.com/abdur-rafi/wQFM-TREE}. All the datasets analyzed in this paper are from previously published studies and are publicly available.
+
+\end{document}

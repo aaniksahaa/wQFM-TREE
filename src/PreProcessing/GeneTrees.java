@@ -14,17 +14,43 @@ import src.Taxon.RealTaxon;
 import src.Tree.Tree;
 import src.Tree.TreeNode;
 
-
+/**
+ * GeneTrees: Preprocessing and management of input gene trees for wQFM-TREE.
+ * 
+ * This class handles the critical first step of the wQFM-TREE algorithm: preprocessing
+ * the input gene trees for efficient use in Algorithm 2 scoring. It performs several
+ * key operations described in the paper:
+ * 
+ * 1. Taxa name extraction and standardization across all gene trees
+ * 2. Gene tree parsing from Newick format with consistent taxon mapping
+ * 3. Optional polytomy resolution for binary tree structure requirement
+ * 4. Tripartition frequency calculation for consensus tree construction
+ * 5. Data structure initialization for efficient Algorithm 2 operations
+ * 
+ * The preprocessing ensures that all gene trees use consistent taxon IDs and
+ * are structured appropriately for the O(n²k log n) scoring complexity described
+ * in Section 2.2. The tripartition data supports Algorithm 1 for initial
+ * bipartition generation.
+ */
 public class GeneTrees {
 
-    public ArrayList<Tree> geneTrees;
-    public String[] taxonIdToLabel;
-    public RealTaxon[] taxa;
-    public Map<String, TreeNode> triPartitions;
-    public Map<String, RealTaxon> taxaMap;
-    public int realTaxaCount;
-    public String path;
+    // Core data structures
+    public ArrayList<Tree> geneTrees;               // Parsed and preprocessed gene trees
+    public String[] taxonIdToLabel;                 // ID to label mapping for output
+    public RealTaxon[] taxa;                        // Array of all real taxa (indexed by ID)
+    public Map<String, TreeNode> triPartitions;     // Tripartition frequency data for consensus
+    public Map<String, RealTaxon> taxaMap;          // Label to RealTaxon mapping
+    public int realTaxaCount;                       // Total number of real taxa
+    public String path;                             // Input file path
 
+    /**
+     * Extracts taxon names from a single Newick tree string.
+     * 
+     * This helper method parses a Newick string to collect all taxon names,
+     * building the comprehensive set of taxa that appear across all gene trees.
+     * This is essential for creating consistent taxon IDs used throughout
+     * the algorithm.
+     */
     private void parseTaxa(String newickLine, Set<String> taxaSet){
         newickLine.replaceAll("\\s", "");
     
@@ -32,16 +58,20 @@ public class GeneTrees {
     
         int i = 0, j = 0;
     
+        // Parse Newick format to extract taxon names
         while(i < n){
             char curr = newickLine.charAt(i);
             if(curr == '('){
+                // Start of internal node - skip
             }
             else if(curr == ')'){
+                // End of internal node - skip
             }
             else if(curr == ',' || curr == ';'){
-    
+                // Separators - skip
             }
             else{
+                // Taxon name - extract and add to set
                 StringBuilder taxa = new StringBuilder();
                 j = i;
                 while(j < n){
@@ -55,6 +85,7 @@ public class GeneTrees {
                     ++j;
                 }
                 if(j == n){
+                    // End of string - final taxon
                     String label = taxa.toString();
                     taxaSet.add(label);
                 }
@@ -65,9 +96,21 @@ public class GeneTrees {
     }
     
 
+    /**
+     * Reads and standardizes taxon names across all gene trees.
+     * 
+     * This method performs the first pass through all gene trees to:
+     * 1. Collect all unique taxon names that appear in any gene tree
+     * 2. Assign consistent IDs to taxa for use throughout the algorithm
+     * 3. Create the taxaMap used for consistent tree parsing
+     * 
+     * The consistent taxon ID assignment is crucial for Algorithm 2 scoring
+     * efficiency, as it enables O(1) taxon lookup operations.
+     */
     public Map<String, RealTaxon> readTaxaNames() throws FileNotFoundException{
         Set<String> taxaSet = new HashSet<>();
 
+        // First pass: collect all taxon names
         Scanner scanner = new Scanner(new File(this.path));
         while(scanner.hasNextLine()){
             String line = scanner.nextLine();
@@ -76,7 +119,7 @@ public class GeneTrees {
         }
         scanner.close();
 
-        
+        // Create RealTaxon objects with consistent IDs
         this.taxaMap = new HashMap<>();
         for(var x : taxaSet){
             RealTaxon taxon = new RealTaxon(x);
@@ -86,19 +129,38 @@ public class GeneTrees {
         return taxaMap;
     }
 
+    /**
+     * Reads and preprocesses all gene trees for wQFM-TREE algorithm.
+     * 
+     * This method performs the main gene tree preprocessing described in Section 2:
+     * 1. Parses each gene tree from Newick format using consistent taxon mapping
+     * 2. Optionally resolves polytomies to ensure binary tree structure
+     * 3. Calculates tripartition frequencies for Algorithm 1 (consensus tree construction)
+     * 4. Prepares trees for efficient Algorithm 2 scoring operations
+     * 
+     * The preprocessing ensures that:
+     * - All trees use consistent taxon IDs for O(1) lookup in scoring
+     * - Tree structure supports efficient quartet evaluation
+     * - Tripartition data enables consensus-based initial bipartition generation
+     * 
+     * @param distanceMatrix Optional distance matrix for polytomy resolution
+     */
     public void readGeneTrees(double[][] distanceMatrix) throws FileNotFoundException{
         int internalNodesCount = 0;
 
         Scanner scanner = new Scanner(new File(path));
 
+        // Process each gene tree
         while (scanner.hasNextLine()) {
 
             String line = scanner.nextLine();
             // System.out.println(line);
             if(line.trim().length() == 0) continue;
             
+            // Parse tree with consistent taxon mapping
             var tree = new Tree(line, this.taxaMap);
             
+            // Optional polytomy resolution for binary tree structure
             if(Config.RESOLVE_POLYTOMY){
                 tree.resolveNonBinary(distanceMatrix);
             }
@@ -109,35 +171,29 @@ public class GeneTrees {
             //     continue;
             // }
 
+            // Calculate tripartition frequencies for Algorithm 1
             tree.calculateFrequencies(triPartitions);
             geneTrees.add(tree);
-            // for(var x : tree.nodes){
-            //     x.frequency = 1;
-            // }
-            // System.out.println(tree.leavesCount);
-            internalNodesCount += tree.nodes.size() - tree.leavesCount;
-            // if(tree.checkIfNonBinary()){
-            //     break;
-            //     // System.out.println("non binary tree");
-            //     // continue;
-            // }
-            // System.out.println(tree.root);
             
+            // Track internal node count for complexity analysis
+            internalNodesCount += tree.nodes.size() - tree.leavesCount;
 
         }
         
         scanner.close();
         
+        // Build efficient lookup arrays for Algorithm 2 operations
         this.taxonIdToLabel = new String[this.taxaMap.size()];
         this.taxa = new RealTaxon[this.taxaMap.size()];
         this.realTaxaCount = this.taxaMap.size();
 
+        // Populate lookup arrays indexed by taxon ID
         for(var x : this.taxaMap.entrySet()){
             taxonIdToLabel[x.getValue().id] = x.getKey();
             taxa[x.getValue().id] = x.getValue();
         }
 
-
+        // Output preprocessing statistics
         System.out.println( "taxon count : " + this.taxaMap.size());
         System.out.println("Gene trees count : " + geneTrees.size());
         System.out.println( "total internal nodes : " + internalNodesCount);
@@ -150,6 +206,13 @@ public class GeneTrees {
 
     }
 
+    /**
+     * Constructor: Initialize gene trees preprocessing from file path.
+     * 
+     * This constructor sets up the GeneTrees object for processing gene trees
+     * from the specified file. The actual preprocessing happens in subsequent
+     * method calls to readTaxaNames() and readGeneTrees().
+     */
     public GeneTrees(String path) throws FileNotFoundException{
 
         this.geneTrees = new ArrayList<>();
@@ -158,6 +221,12 @@ public class GeneTrees {
     }
 
 
+    /**
+     * Constructor: Initialize with existing taxon mapping.
+     * 
+     * This constructor is used when taxon mapping is already established,
+     * immediately proceeding to gene tree preprocessing.
+     */
     public GeneTrees(String path, Map<String, RealTaxon> taxaMap) throws FileNotFoundException{
 
         this.geneTrees = new ArrayList<>();

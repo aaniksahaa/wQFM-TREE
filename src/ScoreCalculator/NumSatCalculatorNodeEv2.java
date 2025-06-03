@@ -234,17 +234,26 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         for(int i = 0; i < b.length; ++i){
             for(int j = i + 1; j < b.length; ++j){
                 // Initial pair weights: product of branch total counts
+                // pairs[i][j][0] = w(PA_{i,j}^[g,u]) for partition A
+                // pairs[i][j][1] = w(PB_{i,j}^[g,u]) for partition B
+                // here, since no weighting, just multiplying suffices
                 this.pairs[i][j][0] = b[i].totalTaxaCounts[0] * b[j].totalTaxaCounts[0];
                 this.pairs[i][j][1] = b[i].totalTaxaCounts[1] * b[j].totalTaxaCounts[1];
                 
                 // Subtract dummy taxa contributions to prevent double-counting
                 // This implements the exclusion constraint from Section 2.5
+                // all the dummy taxa are in one array kindof
+                // for each dummy taxon, we find the partition it belongs to
+                // and subtract from the pair product corresponding to that partition
                 for(int k = 0; k < this.nDummyTaxa; ++k){
                     int partition = this.dummyTaxaPartition[k];
                     this.pairs[i][j][partition] -= b[i].dummyTaxaWeightsIndividual[k] * b[j].dummyTaxaWeightsIndividual[k];
                 }
                 
                 // Accumulate sums for efficient access during scoring
+                // here we store some further sums, 
+                // one is, for each branch, sum over pair with others
+                // other is, sum over all i,j
                 sumPairsBranch[i][0] += this.pairs[i][j][0];
                 sumPairsBranch[j][0] += this.pairs[i][j][0];
                 sumPairsBranch[i][1] += this.pairs[i][j][1];
@@ -263,9 +272,12 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
              * 
              * w(PB_k^[g,u]) = (1/2) * (w(F_B^[g,u,k])² - w(R_B^[g,u,k]) - Σ_X w(X_R^[g,u,k])²)
              */
+
+             // this is the first term
             pairsBFromSingleBranch[i] = b[i].totalTaxaCounts[1] * b[i].totalTaxaCounts[1];
             
             // Subtract dummy taxa squared weights (prevents {a,a} pairs)
+            // this is the third term, subtracting for each dummy taxon
             for(int k = 0; k < this.nDummyTaxa; ++k){
                 int partition = this.dummyTaxaPartition[k];
                 if(partition == 1){
@@ -274,6 +286,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
             }
             
             // Subtract real taxa weights (unit weights, so just count)
+            // second term
             pairsBFromSingleBranch[i] -= b[i].realTaxaCounts[1];
             
             // Divide by 2 since we're counting unordered pairs
@@ -344,6 +357,12 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         this.nonQuartets -= this.nonQuartCalculator.changeAmount(branchIndex);
         for(int i = 0; i < this.branches.length; ++i){
             if(branchIndex == i){
+                // calculating changes
+                // for sumPairsBranch and sumPairs
+                // note that, when, say a real taxon moves from A to B, it still is in the same branch
+                // so, pair product weights where one branch is this branch, changes
+                // as a whole, as the new one comes, the change is equal to the sum for all other branches
+                // so we just do a subtraction
                 this.sumPairsBranch[i][1 - currPartition] += (this.totalTaxa[1-currPartition] - this.branches[i].totalTaxaCounts[1-currPartition]);
                 this.sumPairsBranch[i][currPartition] -= (this.totalTaxa[currPartition] - this.branches[i].totalTaxaCounts[currPartition]);
 
@@ -355,11 +374,18 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
                 int mni = branchIndex > i ? i : branchIndex;
                 int mxi = branchIndex > i ? branchIndex : i;
 
-
+                // also, the pair weights for every pair like (branchIndex, i) will change too
+                // like the following
                 this.pairs[mni][mxi][currPartition] -= this.branches[i].totalTaxaCounts[currPartition];
                 this.pairs[mni][mxi][1 - currPartition] += this.branches[i].totalTaxaCounts[1 - currPartition];
 
-
+                // here, please note that, in the above case, we only ahndled the changes of the branchIndex
+                // for which we are swapping the real taxon
+                // but note that, sumPairsBranch will also change for other branches
+                // How?
+                // for some other branch i, consider all the pairs with it
+                // among all of them, there is also the pair (i, branchIndex)
+                // so, this pair will inc/dec and thus the following
                 this.sumPairsBranch[i][currPartition] -= this.branches[i].totalTaxaCounts[currPartition];
                 this.sumPairsBranch[i][1 - currPartition] += this.branches[i].totalTaxaCounts[1 - currPartition];
 
@@ -369,10 +395,16 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         }
 
         if(currPartition == 1){
+            // if we are moving from B to A
+            // then, PB_k will decrease by how much?
+            // that one taxon would pair up with the others in same branch common with parition 1(B)
+            // so, taxa count - 1
             pairsBFromSingleBranch[branchIndex] -= this.branches[branchIndex].totalTaxaCounts[1] - 1;
             this.sumPairsBSingleBranch -= this.branches[branchIndex].totalTaxaCounts[1] - 1;                
         }
         else{
+            // same as above
+            // just where, we are moving from A to B
             pairsBFromSingleBranch[branchIndex] += this.branches[branchIndex].totalTaxaCounts[1];
             this.sumPairsBSingleBranch += this.branches[branchIndex].totalTaxaCounts[1];                
         }
@@ -386,8 +418,6 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
     }
     @Override
     public void swapDummyTaxon(int dummyIndex, int currPartition){
-        
-
         for(int i = 0; i < this.branches.length; ++i){
             double wi = this.branches[i].dummyTaxaWeightsIndividual[dummyIndex];
 
@@ -395,9 +425,16 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
                 
                 double wj = this.branches[j].dummyTaxaWeightsIndividual[dummyIndex];
                 
+                // here, see that we taking one from the dummy taxa for this branch
+                // and another from the common taxa between the other partition and the other branch
+                // note that, it already ensures that no two taxa are under same dummy taxon
                 double inc = wi * this.branches[j].totalTaxaCounts[1 - currPartition] + wj * this.branches[i].totalTaxaCounts[1-currPartition];
                 this.pairs[i][j][1 - currPartition] += inc;
                 
+                // while decreasing, 
+                // we need to be a little more careful
+                // now, inside the parentheses, wj is subtracted
+                // to make sure that we do not include pairs under same this same dummy taxon
                 double dec = wi * (this.branches[j].totalTaxaCounts[currPartition] - wj) + wj * (this.branches[i].totalTaxaCounts[currPartition] - wi);
                 this.pairs[i][j][currPartition] -= dec;
                 
@@ -411,12 +448,18 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
             }
 
             if(currPartition == 1){
+                // if moving from B to A
+                // we are subtracting wi from inside to account for the condition
+                // of not under same dummy taxon
                 this.pairsBFromSingleBranch[i] -= (this.branches[i].totalTaxaCounts[1] - wi) * wi;
-                this.sumPairsBSingleBranch -= (this.branches[i].totalTaxaCounts[1] - wi) * wi; 
-
+                this.sumPairsBSingleBranch -= (this.branches[i].totalTaxaCounts[1] - wi) * wi;
             }
             else{
-
+                // if moving from A to B
+                // in this case, no need to subtract
+                // since, we are bringing this new dummy taxon onto here
+                // so, no overlap is actually possible
+                // since, these taxa under this dummy taxa did not exist there in the first place
                 this.pairsBFromSingleBranch[i] += (this.branches[i].totalTaxaCounts[1]) * wi;
                 this.sumPairsBSingleBranch += (this.branches[i].totalTaxaCounts[1]) * wi;                     
             }
@@ -434,15 +477,20 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         
     }
 
-
+    // simulate gain of branches for both way
+    // the idea here is to efficiently update the helping value arrays
+    // and from there recalculate the score
+    // but note that, the whole DP is not run again
     @Override
     public double[][] gainRealTaxa(double originalScore, double multiplier) {
         double[][] gainsOfBranches = new double[this.branches.length][2];
         for(int i = 0; i < branches.length; ++i){
             for(int p = 0; p < 2; ++p){
                 if(this.branches[i].realTaxaCounts[p] > 0){
+                    // we first swap
                     this.swapRealTaxon(i, p);
                     gainsOfBranches[i][p] = multiplier * (this.score() - originalScore);
+                    // then swap back
                     this.swapRealTaxon(i, 1 - p);
                 }
             }
@@ -450,7 +498,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
         return gainsOfBranches;
     }
 
-
+    // similarly simulate gains of dummy taxa
     @Override
     public void gainDummyTaxa(double originalScore, double multiplier, double[] dummyTaxaGains) {
         for(int i = 0; i < this.nDummyTaxa; ++i){

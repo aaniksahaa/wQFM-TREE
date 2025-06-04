@@ -75,6 +75,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
      * as described in Section 2.5.3 of the paper. The specific mathematical
      * formulation differs between Type A and Type B approaches.
      */
+    // QUES: But, how is this correct?
     class NonQuartCalculatorB implements NonQuartCalculator{
         @Override
         public double calcNonQuartets(){
@@ -82,6 +83,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
             // Calculate unresolved quartet weights using Type B formulation
             for(int i = 0; i < branches.length; ++i){
                 for(int j = i + 1; j < branches.length; ++j){
+                    // QUES: but how is this correct?
                     q += pairs[i][j][0] * (sumPairs[1] - pairs[i][j][1]);
                 }
             }
@@ -117,6 +119,8 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
             // Calculate unresolved quartet weights using Type A formulation
             for(int i = 0; i < branches.length; ++i){
                 for(int j = i + 1; j < branches.length; ++j){
+                    // this is just a restructuring, 
+                    // similar to the supplementary section of original
                     q += pairs[i][j][0] * (sumPairs[1] - sumPairsBranch[i][1] - sumPairsBranch[j][1] + pairs[i][j][1]);
                 }
             }
@@ -131,6 +135,9 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
                 if(i == branchIndex) continue;
                 int mni = branchIndex > i ? i : branchIndex;
                 int mxi = branchIndex > i ? branchIndex : i;
+                // QUES: why this?
+                // we are just moving one reaL raxon, right?
+                // so, maybe only totalTaxaCount[branchIndex][0] etc...?
                 q += pairs[mni][mxi][0] * (sumPairs[1] - sumPairsBranch[mni][1] - sumPairsBranch[mxi][1] + pairs[mni][mxi][1]);
                 q += pairs[mni][mxi][1] * (sumPairs[0] - sumPairsBranch[mni][0] - sumPairsBranch[mxi][0] + pairs[mni][mxi][0]);
                 
@@ -240,7 +247,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
                 this.pairs[i][j][0] = b[i].totalTaxaCounts[0] * b[j].totalTaxaCounts[0];
                 this.pairs[i][j][1] = b[i].totalTaxaCounts[1] * b[j].totalTaxaCounts[1];
                 
-                // Subtract dummy taxa contributions to prevent double-counting
+                // Subtract dummy taxa contributions to prevent two taxa under same dummy taxon
                 // This implements the exclusion constraint from Section 2.5
                 // all the dummy taxa are in one array kindof
                 // for each dummy taxon, we find the partition it belongs to
@@ -379,7 +386,7 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
                 this.pairs[mni][mxi][currPartition] -= this.branches[i].totalTaxaCounts[currPartition];
                 this.pairs[mni][mxi][1 - currPartition] += this.branches[i].totalTaxaCounts[1 - currPartition];
 
-                // here, please note that, in the above case, we only ahndled the changes of the branchIndex
+                // here, please note that, in the above case, we only handled the changes of the branchIndex
                 // for which we are swapping the real taxon
                 // but note that, sumPairsBranch will also change for other branches
                 // How?
@@ -389,6 +396,9 @@ public class NumSatCalculatorNodeEv2 implements NumSatCalculatorNode {
                 this.sumPairsBranch[i][currPartition] -= this.branches[i].totalTaxaCounts[currPartition];
                 this.sumPairsBranch[i][1 - currPartition] += this.branches[i].totalTaxaCounts[1 - currPartition];
 
+                // note that, here we no more change the sumPairs
+                // because that would be redundant
+                // the change that we did in the earlier case actually accounts for all as a whole
             }
             
 

@@ -116,7 +116,6 @@ public class BookKeepingPerTree {
 
         for(int i = 0; i <= childCount; ++i){
             branches[i] = new Branch(taxas.dummyTaxonCount);
-
         }
         for(int i = 0; i < childCount; ++i){
 

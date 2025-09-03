@@ -165,6 +165,9 @@ public class Tree {
         if(root.childs.size() > 2)
             balanceRoot();
         
+        // Normalize support values to ensure they are in [0,1] range
+        normalizeSupportValues();
+        
         // Set up data structures for efficient tree operations
         filterLeaves();
         topSort();
@@ -250,6 +253,50 @@ public class Tree {
         node.setBranchLength(branchLength);
         
         return i;
+    }
+
+    /**
+     * Normalizes support values across the tree to ensure they are in the 0-1 range.
+     * 
+     * This method performs a single pass through all nodes to check support values:
+     * 1. If all values are in [0,1], no normalization needed
+     * 2. If all values are in [0,100], divide by 100 to normalize to [0,1]
+     * 3. If any value exceeds 100, throw an error
+     * 
+     * This ensures consistent support value interpretation across different input formats.
+     */
+    private void normalizeSupportValues() {
+        boolean hasValuesAboveOne = false;
+        boolean hasValuesAbove100 = false;
+        double maxSupport = 0.0;
+        
+        // First pass: analyze the range of support values
+        for(TreeNode node : nodes) {
+            if(node.support > maxSupport) {
+                maxSupport = node.support;
+            }
+            if(node.support > 1.0) {
+                hasValuesAboveOne = true;
+            }
+            if(node.support > 100.0) {
+                hasValuesAbove100 = true;
+            }
+        }
+        
+        // Check for invalid values (> 100)
+        if(hasValuesAbove100) {
+            throw new IllegalArgumentException(
+                String.format("Invalid support value found: %.3f. Support values must be in range [0,1] or [0,100].", maxSupport)
+            );
+        }
+        
+        // Normalize if values are in 0-100 range
+        if(hasValuesAboveOne) {
+            System.out.println("Normalizing support values from [0,100] to [0,1] range...");
+            for(TreeNode node : nodes) {
+                node.support = node.support / 100.0;
+            }
+        }
     }
 
     /**
@@ -514,7 +561,9 @@ public class Tree {
         
         // The two children of the new root should keep their existing branch properties
         // These were correctly parsed from the Newick string - don't overwrite them!
-        closest.support = 1.0;              // Full support for the "broken" side
+        // here we set originalSupport to the support of the closest node
+        // because if we set 1, then it would make all paths along it to be of weight 1
+        closest.support = originalSupport;              // Full support for the "broken" side
         closest.branchLength = 1e-6;        // Epsilon length for the "broken" side
 
         closestP.support = originalSupport;              // Full support for the "broken" side

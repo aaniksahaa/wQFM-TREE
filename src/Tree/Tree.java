@@ -168,6 +168,9 @@ public class Tree {
         // Normalize support values to ensure they are in [0,1] range
         normalizeSupportValues();
         
+        // Calculate depths for efficient LCA operations
+        calculateDepths();
+        
         // Set up data structures for efficient tree operations
         filterLeaves();
         topSort();
@@ -297,6 +300,79 @@ public class Tree {
                 node.support = node.support / 100.0;
             }
         }
+    }
+
+    /**
+     * Calculates depth, cumulative branch lengths, and cumulative support products for all nodes.
+     * Depth is measured as number of edges from root (root has depth 0).
+     * DepthLength is cumulative branch length from root (root has depthLength 0).
+     * DepthSupportProductLog is cumulative log(1-support) from root for efficient support product calculations.
+     */
+    private void calculateDepths() {
+        calculateDepthsUtil(root, 0, 0.0, 0.0);
+    }
+    
+    private void calculateDepthsUtil(TreeNode node, int depth, double depthLength, double depthSupportProductLog) {
+        node.setDepth(depth);
+        node.setDepthLength(depthLength);
+        node.setDepthSupportProductLog(depthSupportProductLog);
+        
+        if(node.childs != null) {
+            for(TreeNode child : node.childs) {
+                // Calculate child's cumulative values
+                double childDepthLength = depthLength + child.branchLength;
+                
+                // Calculate child's cumulative log support product
+                double childSupportProductLog;
+                double oneMinusSupport = 1.0 - child.support;
+                if(oneMinusSupport <= 0.0) {
+                    // Handle log(0) case - set to very negative value
+                    childSupportProductLog = depthSupportProductLog - 9999.0;
+                } else {
+                    childSupportProductLog = depthSupportProductLog + Math.log(oneMinusSupport);
+                }
+                
+                calculateDepthsUtil(child, depth + 1, childDepthLength, childSupportProductLog);
+            }
+        }
+    }
+    
+    /**
+     * Finds the Lowest Common Ancestor (LCA) of two nodes.
+     * Uses the depth information to efficiently find LCA by moving up from deeper node.
+     */
+    public TreeNode findLCA(TreeNode node1, TreeNode node2) {
+        if(node1 == null || node2 == null) return null;
+        
+        // Make node1 the deeper node
+        if(node1.depth < node2.depth) {
+            TreeNode temp = node1;
+            node1 = node2;
+            node2 = temp;
+        }
+        
+        // Move node1 up until both are at same depth
+        while(node1.depth > node2.depth) {
+            node1 = node1.parent;
+        }
+        
+        // Move both up until they meet
+        while(node1 != node2) {
+            node1 = node1.parent;
+            node2 = node2.parent;
+        }
+        
+        return node1;
+    }
+    
+    /**
+     * Finds LCA using taxon IDs (convenience method).
+     */
+    public TreeNode findLCA(int taxonId1, int taxonId2) {
+        if(!isTaxonPresent(taxonId1) || !isTaxonPresent(taxonId2)) {
+            return null;
+        }
+        return findLCA(leaves[taxonId1], leaves[taxonId2]);
     }
 
     /**
@@ -511,8 +587,8 @@ public class Tree {
         double originalSupport = closest.support;
         double originalLength = closest.branchLength;
 
-        System.out.println("originalSupport: " + originalSupport);
-        System.out.println("originalLength: " + originalLength);
+        // System.out.println("originalSupport: " + originalSupport);
+        // System.out.println("originalLength: " + originalLength);
         
         closestP.childs.remove(closest);
 
@@ -563,8 +639,8 @@ public class Tree {
         // These were correctly parsed from the Newick string - don't overwrite them!
         // here we set originalSupport to the support of the closest node
         // because if we set 1, then it would make all paths along it to be of weight 1
-        closest.support = originalSupport;              // Full support for the "broken" side
-        closest.branchLength = 1e-6;        // Epsilon length for the "broken" side
+        closest.support = 0;              // Full support for the "broken" side
+        closest.branchLength = 0;        // Epsilon length for the "broken" side
 
         closestP.support = originalSupport;              // Full support for the "broken" side
         closestP.branchLength = originalLength;        // Epsilon length for the "broken" side
@@ -719,6 +795,283 @@ public class Tree {
                 return true;
         }
         return false;
+    }
+
+    /**
+     * Quartet topology representation
+     */
+    public static class QuartetTopology {
+        public int[] pair1;  // First pair of taxa (a,b)
+        public int[] pair2;  // Second pair of taxa (c,d)
+        public TreeNode u;   // Internal node where pair1 meets
+        public TreeNode v;   // Internal node where pair2 meets
+        public boolean isValid; // Whether this forms a valid quartet
+        
+        public QuartetTopology(int a, int b, int c, int d, TreeNode u, TreeNode v) {
+            this.pair1 = new int[]{a, b};
+            this.pair2 = new int[]{c, d};
+            this.u = u;
+            this.v = v;
+            this.isValid = true;
+        }
+        
+        public QuartetTopology() {
+            this.isValid = false;
+        }
+    }
+    
+    /**
+     * Detects quartet topology for four given taxa.
+     * 
+     * For taxa a,b,c,d, determines which pairing ((a,b),(c,d)) vs ((a,c),(b,d)) vs ((a,d),(b,c))
+     * forms a valid quartet in this tree. Also finds the internal nodes u and v where pairs meet.
+     * 
+     * Algorithm:
+     * 1. For each taxon, find LCA with the other three
+     * 2. Check if the lowest LCA is unique (indicates valid quartet)
+     * 3. Find internal nodes u and v for the valid pairing
+     */
+    public QuartetTopology detectQuartetTopology(int a, int b, int c, int d) {
+        // Check if all taxa are present
+        if(!isTaxonPresent(a) || !isTaxonPresent(b) || !isTaxonPresent(c) || !isTaxonPresent(d)) {
+            return new QuartetTopology(); // Invalid quartet
+        }
+        
+        int[] taxa = {a, b, c, d};
+        
+        // Try each taxon as the reference to find unique lowest LCA
+        for(int i = 0; i < 4; i++) {
+            int ref = taxa[i];
+            int[] others = new int[3];
+            int idx = 0;
+            for(int j = 0; j < 4; j++) {
+                if(j != i) others[idx++] = taxa[j];
+            }
+            
+            // Find LCAs of reference with the other three
+            TreeNode lca1 = findLCA(ref, others[0]);
+            TreeNode lca2 = findLCA(ref, others[1]);
+            TreeNode lca3 = findLCA(ref, others[2]);
+            
+            // Check if one LCA is uniquely deepest (larger depth = further from root, closer to leaves)
+            TreeNode[] lcas = {lca1, lca2, lca3};
+            int maxDepth = Math.max(Math.max(lca1.depth, lca2.depth), lca3.depth);
+            
+            int countAtMaxDepth = 0;
+            int maxDepthIndex = -1;
+            for(int k = 0; k < 3; k++) {
+                if(lcas[k].depth == maxDepth) {
+                    countAtMaxDepth++;
+                    maxDepthIndex = k;
+                }
+            }
+            
+            // If exactly one LCA is at maximum depth, we found our quartet
+            if(countAtMaxDepth == 1) {
+                int partner = others[maxDepthIndex];
+                int[] remaining = new int[2];
+                idx = 0;
+                for(int k = 0; k < 3; k++) {
+                    if(k != maxDepthIndex) remaining[idx++] = others[k];
+                }
+                
+                // We have pairs: (ref, partner) and (remaining[0], remaining[1])
+                // this v is for ref and partner 
+                TreeNode v = lcas[maxDepthIndex]; // LCA of the pair with deepest depth
+                
+                // Find u carefully
+                TreeNode u = findInternalNodeU(remaining[0], remaining[1], ref, partner, v);
+                
+                return new QuartetTopology(ref, partner, remaining[0], remaining[1], v, u);
+            }
+        }
+        
+        return new QuartetTopology(); // No valid quartet found (polytomy)
+    }
+    
+    /**
+     * Finds internal node u for quartet topology.
+     * Given that v is LCA of one pair, finds u for the other pair.
+     */
+    private TreeNode findInternalNodeU(int a, int b, int c, int d, TreeNode v) {
+        TreeNode lcaAC = findLCA(a, c);
+        TreeNode lcaBC = findLCA(b, c);
+        
+        if(lcaAC != lcaBC) {
+            // Return the one with smaller depth (closer to leaves)
+            return (lcaAC.depth > lcaBC.depth) ? lcaAC : lcaBC;
+        } else {
+            // Both are same, so u is LCA of the first pair
+            return findLCA(a, b);
+        }
+    }
+
+    /**
+     * Calculates the sum of branch lengths between any two nodes in the tree.
+     * Uses LCA traversal approach (kept for compatibility/verification).
+     */
+    public double calculatePathLength(TreeNode node1, TreeNode node2) {
+        if(node1 == null || node2 == null) return 0.0;
+        if(node1 == node2) return 0.0; // Same node, no distance
+        
+        TreeNode lca = findLCA(node1, node2);
+        double totalLength = 0.0;
+        
+        // Path from node1 to LCA
+        TreeNode current = node1;
+        while(current != null && current != lca) {
+            totalLength += current.branchLength;
+            current = current.parent;
+        }
+        
+        // Path from node2 to LCA
+        current = node2;
+        while(current != null && current != lca) {
+            totalLength += current.branchLength;
+            current = current.parent;
+        }
+        
+        return totalLength;
+    }
+    
+    /**
+     * Calculates the sum of branch lengths from a taxon (leaf) to a given node.
+     * Convenience method for taxon ID to node calculations.
+     */
+    public double calculatePathLength(int taxonId, TreeNode targetNode) {
+        if(!isTaxonPresent(taxonId)) return 0.0;
+        return calculatePathLength(leaves[taxonId], targetNode);
+    }
+    
+    /**
+     * Calculates the product of (1 - support) values along the path between two nodes.
+     * This is used in the quartet weight formula: product of (1-s(e)) for all branches e along path u,v.
+     */
+    public double calculateSupportProduct(TreeNode node1, TreeNode node2) {
+        if(node1 == null || node2 == null) return 1.0;
+        
+        // Find path from node1 to node2
+        TreeNode lca = findLCA(node1, node2);
+        
+        double product = 1.0;
+        
+        // Path from node1 to LCA (excluding LCA)
+        TreeNode current = node1;
+        while(current != null && current != lca) {
+            product *= (1.0 - current.support);
+            current = current.parent;
+        }
+        
+        // Path from node2 to LCA (excluding LCA)
+        current = node2;
+        while(current != null && current != lca) {
+            product *= (1.0 - current.support);
+            current = current.parent;
+        }
+        
+        return product;
+    }
+
+    /**
+     * Calculates quartet weight for a given quartet topology.
+     * 
+     * Formula: e^-(len(u,a) + len(u,b) + len(v,c) + len(v,d)) * (1 - product of (1-s(e)) for path u,v)
+     * 
+     * Where:
+     * - u is internal node where first pair meets
+     * - v is internal node where second pair meets  
+     * - len(x,y) is sum of branch lengths from x to y
+     * - s(e) is support value of branch e
+     */
+    public double calculateQuartetWeight(QuartetTopology quartet) {
+        if(!quartet.isValid) return 0.0;
+        
+        // Calculate path lengths from internal nodes to leaves (using optimized method)
+        double lengthUA = calculatePathLengthOptimized(quartet.pair1[0], quartet.u);
+        double lengthUB = calculatePathLengthOptimized(quartet.pair1[1], quartet.u);
+        double lengthVC = calculatePathLengthOptimized(quartet.pair2[0], quartet.v);
+        double lengthVD = calculatePathLengthOptimized(quartet.pair2[1], quartet.v);
+        
+        // Total path length component
+        double totalLength = lengthUA + lengthUB + lengthVC + lengthVD;
+        
+        // Support product along path u to v (using optimized method)
+        double supportProduct = calculateSupportProductOptimized(quartet.u, quartet.v);
+        
+        // Final quartet weight formula
+        double weight = Math.exp(-totalLength) * (1.0 - supportProduct);
+        
+        return weight;
+    }
+
+    /**
+     * Optimized calculation of branch length distance between two nodes.
+     * Uses the formula: dist(u,v) = depthLength[u] + depthLength[v] - 2⋅depthLength[lca(u,v)]
+     * This is much faster than traversing the tree path.
+     */
+    public double calculatePathLengthOptimized(TreeNode node1, TreeNode node2) {
+        if(node1 == null || node2 == null) return 0.0;
+        if(node1 == node2) return 0.0; // Same node, no distance
+        
+        TreeNode lca = findLCA(node1, node2);
+        return node1.depthLength + node2.depthLength - 2.0 * lca.depthLength;
+    }
+    
+    /**
+     * Optimized path length calculation from taxon to node.
+     */
+    public double calculatePathLengthOptimized(int taxonId, TreeNode targetNode) {
+        if(!isTaxonPresent(taxonId)) return 0.0;
+        return calculatePathLengthOptimized(leaves[taxonId], targetNode);
+    }
+
+    /**
+     * Optimized calculation of support product between two nodes using logarithmic approach.
+     * Uses the formula: log(product) = depthSupportProductLog[u] + depthSupportProductLog[v] - 2⋅depthSupportProductLog[lca(u,v)]
+     * Then exponentiates the result, with safeguard for very negative values.
+     */
+    public double calculateSupportProductOptimized(TreeNode node1, TreeNode node2) {
+        if(node1 == null || node2 == null) return 1.0;
+        if(node1 == node2) return 1.0; // Same node, no path
+        
+        TreeNode lca = findLCA(node1, node2);
+        double logProduct = node1.depthSupportProductLog + node2.depthSupportProductLog - 2.0 * lca.depthSupportProductLog;
+        
+        // Handle very negative values (essentially zero product)
+        if(logProduct < -100.0) {
+            return 0.0;
+        }
+        
+        return Math.exp(logProduct);
+    }
+
+    /**
+     * Sets all branch lengths in the tree to the specified value.
+     * Useful for standardizing trees or testing scenarios.
+     * 
+     * @param length The branch length value to set for all branches
+     */
+    public void setAllBranchLengths(double length) {
+        for(TreeNode node : nodes) {
+            node.setBranchLength(length);
+        }
+        calculateDepths();
+    }
+    
+    /**
+     * Sets all support values in the tree to the specified value.
+     * Useful for standardizing trees or testing scenarios.
+     * Note: Values will still go through normalization if > 1.0
+     * 
+     * @param support The support value to set for all branches (should be in [0,1] or [0,100])
+     */
+    public void setAllSupportValues(double support) {
+        for(TreeNode node : nodes) {
+            node.setSupport(support);
+        }
+        // Re-normalize in case the provided support value needs normalization
+        normalizeSupportValues();
+        calculateDepths();
     }
 
 }

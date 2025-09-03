@@ -1,9 +1,0 @@
-javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/gtree_11tax_est_5genes_R1.tre
-javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/bee_bs.tre 
-javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/test_1.tre 
-javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/test_2.tre
-javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/test_3.tre 
-javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/test_4.tre 
-javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/all_gt.tre 
-
-javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/test_3.tre

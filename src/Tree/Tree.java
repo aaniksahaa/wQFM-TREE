@@ -80,88 +80,87 @@ public class Tree {
 
 
     /**
-     * Parses a phylogenetic tree from Newick format.
+     * Parses a phylogenetic tree from Newick format with support values and branch lengths.
      * 
-     * This method handles the input gene trees and consensus trees used
-     * throughout the wQFM-TREE algorithm. The parsed trees are used for:
-     * 1. Gene tree preprocessing and scoring (Algorithm 2)
-     * 2. Consensus tree construction for Algorithm 1
-     * 3. Final species tree output
+     * Enhanced parser that handles extended Newick format:
+     * - Branch lengths: specified after colon (:1.5)
+     * - Support values: specified before colon (0.95:1.5)
+     * - For leaves without support: defaults to 1.0
      * 
-     * The parser handles standard Newick format with taxon name mapping
-     * through the provided taxaMap for consistent taxon identification.
+     * Format examples:
+     * - (A:1.0,B:2.0)0.95:3.0  -> internal node with support 0.95 and length 3.0
+     * - A:1.5                  -> leaf A with length 1.5 and support 1.0 (default)
      */
     private void parseFromNewick(String newickLine){
 
-        // Map<String, RealTaxon> taxaMap = new HashMap<>();
         int leavesCount = 0;
-
         nodes = new ArrayList<>();
+        Stack<TreeNode> nodeStack = new Stack<>();
+        newickLine = newickLine.replaceAll("\\s", "");
+        int n = newickLine.length();
+        int i = 0;
+        
+
     
-        Stack<TreeNode> nodes = new Stack<>();
-        newickLine.replaceAll("\\s", "");
-    
-        int n =  newickLine.length();
-    
-        int i = 0, j = 0;
-    
-        // Standard Newick parsing with stack-based approach
         while(i < n){
             char curr = newickLine.charAt(i);
             if(curr == '('){
                 // Start of internal node - push sentinel
-                nodes.push(null);
+                nodeStack.push(null);
+                i++;
             }
             else if(curr == ')'){
                 // End of internal node - collect children and create internal node
-                ArrayList<TreeNode> arr = new ArrayList<>();
-                while( !nodes.isEmpty() && nodes.peek() != null){
-                    arr.add(nodes.pop());
+                ArrayList<TreeNode> children = new ArrayList<>();
+                while(!nodeStack.isEmpty() && nodeStack.peek() != null){
+                    children.add(nodeStack.pop());
                 }
-                if(!nodes.isEmpty())
-                    nodes.pop();
-                nodes.push(addInternalNode(arr));
+                if(!nodeStack.isEmpty())
+                    nodeStack.pop(); // Remove sentinel
                 
+                TreeNode internalNode = addInternalNode(children);
+                // Parse support value and branch length for this internal node
+                i++; // Move past ')'
+                i = parseBranchInfo(newickLine, i, n, internalNode);
+                
+                nodeStack.push(internalNode);
             }
             else if(curr == ',' || curr == ';'){
                 // Separators - skip
+                i++;
             }
             else{
-                // Taxon name - parse and create leaf node
-                StringBuilder taxa = new StringBuilder();
-                j = i;
-                TreeNode newNode = null;
+                // Parse taxon name and create leaf node
+                StringBuilder taxonName = new StringBuilder();
+                int j = i;
+                
+                // Extract taxon name (until we hit :, ), or ,)
                 while(j < n){
                     char curr_j = newickLine.charAt(j);
-                    if(curr_j == ')' || curr_j == ','){
-                        RealTaxon taxon;
-                        // Lookup taxon in provided mapping for consistent IDs
-                        taxon = this.taxaMap.get(taxa.toString());
-                        newNode = addLeaf(taxon);
-                        leavesCount++;
-
+                    if(curr_j == ':' || curr_j == ')' || curr_j == ',' || curr_j == ';'){
                         break;
                     }
-                    taxa.append(curr_j);
-                    ++j;
+                    taxonName.append(curr_j);
+                    j++;
                 }
-                if(j == n){
-                    // End of string - final taxon
-                    leavesCount++;
-                    RealTaxon taxon;
-                    taxon = this.taxaMap.get(taxa.toString());
-                    newNode = addLeaf(taxon);
-                }
-                i = j - 1;
-                nodes.push(newNode);
+                
+                // Create leaf node
+                RealTaxon taxon = this.taxaMap.get(taxonName.toString());
+                TreeNode leafNode = addLeaf(taxon);
+                leavesCount++;
+                
+                // Parse branch length for leaf (leaves default to support = 1.0)
+                i = j;
+                i = parseBranchInfo(newickLine, i, n, leafNode);
+                
+                nodeStack.push(leafNode);
             }
-            ++i;
         }
 
         this.leavesCount = leavesCount;
     
-        root = nodes.lastElement();
-    
+        root = nodeStack.lastElement();
+
         // Ensure binary tree structure for efficient Algorithm 2 operations
         if(root.childs.size() > 2)
             balanceRoot();
@@ -183,6 +182,74 @@ public class Tree {
         // }
         // bringLeafsToFront();
 
+    }
+
+    /**
+     * Parses branch information (support value and branch length) from Newick format.
+     * 
+     * Handles the format: [support]:[length] where support is optional for leaves.
+     * Examples:
+     * - :1.5 -> support=1.0 (default), length=1.5
+     * - 0.95:2.0 -> support=0.95, length=2.0
+     * - (no info) -> support=1.0, length=0.0 (defaults)
+     * 
+     * @param newickLine The complete Newick string
+     * @param startPos Current position in the string
+     * @param endPos End of string
+     * @param node The node to set branch info for
+     * @return New position after parsing branch info
+     */
+    private int parseBranchInfo(String newickLine, int startPos, int endPos, TreeNode node) {
+        int i = startPos;
+        double support = 1.0;  // Default support
+        double branchLength = 0.0;  // Default length
+        
+        // Check if there's branch information
+        if(i < endPos && (newickLine.charAt(i) == ':' || Character.isDigit(newickLine.charAt(i)) || newickLine.charAt(i) == '.')) {
+            
+            // Case 1: Support value followed by colon and length (support:length)
+            if(i < endPos && Character.isDigit(newickLine.charAt(i))) {
+                StringBuilder supportStr = new StringBuilder();
+                while(i < endPos && newickLine.charAt(i) != ':' && newickLine.charAt(i) != ')' && 
+                      newickLine.charAt(i) != ',' && newickLine.charAt(i) != ';') {
+                    supportStr.append(newickLine.charAt(i));
+                    i++;
+                }
+                
+                if(supportStr.length() > 0) {
+                    try {
+                        support = Double.parseDouble(supportStr.toString());
+                    } catch(NumberFormatException e) {
+                        support = 1.0; // Default if parsing fails
+                    }
+                }
+            }
+            
+            // Case 2: Parse branch length after colon
+            if(i < endPos && newickLine.charAt(i) == ':') {
+                i++; // Skip the colon
+                StringBuilder lengthStr = new StringBuilder();
+                while(i < endPos && newickLine.charAt(i) != ')' && newickLine.charAt(i) != ',' && 
+                      newickLine.charAt(i) != ';') {
+                    lengthStr.append(newickLine.charAt(i));
+                    i++;
+                }
+                
+                if(lengthStr.length() > 0) {
+                    try {
+                        branchLength = Double.parseDouble(lengthStr.toString());
+                    } catch(NumberFormatException e) {
+                        branchLength = 0.0; // Default if parsing fails
+                    }
+                }
+            }
+        }
+        
+        // Set the parsed values
+        node.setSupport(support);
+        node.setBranchLength(branchLength);
+        
+        return i;
     }
 
     /**
@@ -315,30 +382,63 @@ public class Tree {
     //     }
     // }
     
+    // maybe there is problem here, be CAREFUL 
+    // TODO: fix this 
     public void reRootTree(TreeNode newRootNode){
         TreeNode newRootP = newRootNode.parent;
         if(newRootP == null) return;
+        
+        // Store original branch properties of the new root edge
+        double originalSupport = newRootNode.support;
+        double originalLength = newRootNode.branchLength;
+        
         newRootP.childs.remove(newRootNode);
 
         TreeNode curr = newRootP;
         TreeNode currP, temp;
         currP = curr.parent;
+        
+        // During rerooting, we need to reverse parent-child relationships
+        // and properly handle branch properties
         while(curr != null && currP != null){
+            // Store branch properties before changing relationships
+            double tempSupport = currP.support;
+            double tempLength = currP.branchLength;
+            
             curr.childs.add(currP);
             currP.childs.remove(curr);
             temp = currP;
             currP = currP.parent;
             temp.parent = curr;
+            
+            // Update branch properties: the branch that was from currP to curr
+            // is now from curr to temp, so temp inherits the old properties
+            temp.support = tempSupport;
+            temp.branchLength = tempLength;
+            
             curr = temp;
-            // System.out.println(curr.index);
         }
+        
         if(newRootNode.isLeaf())
             newRootNode.childs = new ArrayList<>();
         newRootNode.childs.add(newRootP);
+        
+        // Handle the new root's branch properties
+        // The new root has no parent, so we split the original edge
+        newRootNode.support = 1.0;      // Root has full support
+        newRootNode.branchLength = 1e-6; // Epsilon length for root
+        
+        // The former parent gets the remaining branch properties
+        newRootP.support = originalSupport;
+        newRootP.branchLength = originalLength;
+        newRootP.parent = newRootNode;
+        
         this.root = newRootNode;
     }
 
     private void balanceRoot(){
+
+        // System.out.println("newick: " + newickFormatUitl(root));
 
         int n = nodes.size();
         ArrayList<Integer> subTreeNodeCount = new ArrayList<>(n);
@@ -356,47 +456,108 @@ public class Tree {
                 closest = nodes.get(i);
             }
         }
-        // System.out.println("diff : " + diff + " node: " + closest.index);
+        
         TreeNode closestP = closest.parent;
+        if(closestP == null) return; // Already at root
+        
+        // Store original branch properties of the edge we're breaking
+        double originalSupport = closest.support;
+        double originalLength = closest.branchLength;
+
+        System.out.println("originalSupport: " + originalSupport);
+        System.out.println("originalLength: " + originalLength);
+        
         closestP.childs.remove(closest);
 
         TreeNode curr = closestP;
         TreeNode currP, temp;
         currP = curr.parent;
+
+        // Store branch properties before changing relationships
+        double tempSupport = curr.support;
+        double tempLength = curr.branchLength;
+
+        double nextTempSupport, nextTempLength;
+        
+        // Handle branch properties during the rerooting process
         while(curr != null && currP != null){
+            nextTempSupport = currP.support;
+            nextTempLength = currP.branchLength;
+            
             curr.childs.add(currP);
             currP.childs.remove(curr);
             temp = currP;
             currP = currP.parent;
             temp.parent = curr;
+            
+            // Update branch properties: the branch that was from currP to curr
+            // is now from curr to temp, so temp inherits the old properties
+            temp.support = tempSupport;
+            temp.branchLength = tempLength;
+            
             curr = temp;
+
+            tempSupport = nextTempSupport;
+            tempLength = nextTempLength;
         }
 
         ArrayList<TreeNode> arr = new ArrayList<>();
         arr.add(closest);
         arr.add(closestP);
 
-        root = addInternalNode(arr) ;
-        // root = new TreeNode(nodes.size(),null, arr, null);
-        // nodes.add(root);
+        root = addInternalNode(arr);
+        
+        // Handle branch properties for the new root configuration
+        // The new root is an artificial node breaking the original edge
+        root.support = 1.0;      // Root has full support
+        root.branchLength = 0.0; // Root has no parent branch
+        
+        // The two children of the new root should keep their existing branch properties
+        // These were correctly parsed from the Newick string - don't overwrite them!
+        closest.support = 1.0;              // Full support for the "broken" side
+        closest.branchLength = 1e-6;        // Epsilon length for the "broken" side
 
-        // System.out.println(root.toString());
+        closestP.support = originalSupport;              // Full support for the "broken" side
+        closestP.branchLength = originalLength;        // Epsilon length for the "broken" side
+        
+        // closestP should keep its existing support and length values that were parsed correctly
+        // Don't overwrite them - they contain the correct values from the original Newick string
 
+    
     }
     
     
+    
     private String newickFormatUitl(TreeNode node){
-        if(node.isLeaf()){
-            return node.taxon.label;
-        }
         StringBuilder sb = new StringBuilder();
-        sb.append("(");
-        for(int i = 0; i < node.childs.size(); ++i){
-            sb.append(newickFormatUitl(node.childs.get(i)));
-            if(i != node.childs.size() - 1)
-                sb.append(",");
+        
+        if(node.isLeaf()){
+            sb.append(node.taxon.label);
+        } else {
+            sb.append("(");
+            for(int i = 0; i < node.childs.size(); ++i){
+                sb.append(newickFormatUitl(node.childs.get(i)));
+                if(i != node.childs.size() - 1)
+                    sb.append(",");
+            }
+            sb.append(")");
         }
-        sb.append(")");
+        
+        // Add branch information (support:length) if not root
+        if(node.parent != null) {
+            // For internal nodes, include support value if it's not 1.0
+            if(!node.isLeaf()) {
+                sb.append(String.format("%.3f", node.support));
+            }
+
+            sb.append(":").append(String.format("%.3f", node.branchLength));
+
+            // // Add branch length if it's not 0.0
+            // if(node.branchLength != 0.0) {
+            //     sb.append(":").append(String.format("%.3f", node.branchLength));
+            // }
+        }
+        
         return sb.toString();
     }
 

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Stack;
+import java.util.List;
 
 import src.Taxon.RealTaxon;
 
@@ -37,6 +38,10 @@ public class Tree {
     public TreeNode[] leaves;                       // Fast access to leaf nodes by taxon ID
     public int leavesCount;                         // Number of leaves in tree
     
+    // LCA table for O(1) LCA queries
+    private TreeNode[][] lcaTable;                  // Precomputed LCA table for all node pairs
+    private boolean lcaTableBuilt = false;          // Flag to track if LCA table is built
+
 
     /**
      * Creates a new internal or leaf tree node.
@@ -170,6 +175,9 @@ public class Tree {
         
         // Calculate depths for efficient LCA operations
         calculateDepths();
+        
+        // Build LCA table for O(1) LCA queries
+        buildLCATable();
         
         // Set up data structures for efficient tree operations
         filterLeaves();
@@ -457,6 +465,10 @@ public class Tree {
         // System.out.println(root.childs.size());
         resolveNonBinaryUtil(root, distanceMatrix);
         topSort();
+        
+        // Rebuild LCA table after tree structure changes
+        buildLCATable();
+        calculateDepths();
     }
 
     
@@ -848,10 +860,10 @@ public class Tree {
                 if(j != i) others[idx++] = taxa[j];
             }
             
-            // Find LCAs of reference with the other three
-            TreeNode lca1 = findLCA(ref, others[0]);
-            TreeNode lca2 = findLCA(ref, others[1]);
-            TreeNode lca3 = findLCA(ref, others[2]);
+            // Find LCAs of reference with the other three (using O(1) fast LCA)
+            TreeNode lca1 = findLCAFast(ref, others[0]);
+            TreeNode lca2 = findLCAFast(ref, others[1]);
+            TreeNode lca3 = findLCAFast(ref, others[2]);
             
             // Check if one LCA is uniquely deepest (larger depth = further from root, closer to leaves)
             TreeNode[] lcas = {lca1, lca2, lca3};
@@ -894,15 +906,15 @@ public class Tree {
      * Given that v is LCA of one pair, finds u for the other pair.
      */
     private TreeNode findInternalNodeU(int a, int b, int c, int d, TreeNode v) {
-        TreeNode lcaAC = findLCA(a, c);
-        TreeNode lcaBC = findLCA(b, c);
+        TreeNode lcaAC = findLCAFast(a, c);
+        TreeNode lcaBC = findLCAFast(b, c);
         
         if(lcaAC != lcaBC) {
             // Return the one with smaller depth (closer to leaves)
             return (lcaAC.depth > lcaBC.depth) ? lcaAC : lcaBC;
         } else {
             // Both are same, so u is LCA of the first pair
-            return findLCA(a, b);
+            return findLCAFast(a, b);
         }
     }
 
@@ -1007,13 +1019,13 @@ public class Tree {
     /**
      * Optimized calculation of branch length distance between two nodes.
      * Uses the formula: dist(u,v) = depthLength[u] + depthLength[v] - 2⋅depthLength[lca(u,v)]
-     * This is much faster than traversing the tree path.
+     * With O(1) LCA lookup, this is truly O(1).
      */
     public double calculatePathLengthOptimized(TreeNode node1, TreeNode node2) {
         if(node1 == null || node2 == null) return 0.0;
         if(node1 == node2) return 0.0; // Same node, no distance
         
-        TreeNode lca = findLCA(node1, node2);
+        TreeNode lca = findLCAFast(node1, node2);
         return node1.depthLength + node2.depthLength - 2.0 * lca.depthLength;
     }
     
@@ -1029,12 +1041,13 @@ public class Tree {
      * Optimized calculation of support product between two nodes using logarithmic approach.
      * Uses the formula: log(product) = depthSupportProductLog[u] + depthSupportProductLog[v] - 2⋅depthSupportProductLog[lca(u,v)]
      * Then exponentiates the result, with safeguard for very negative values.
+     * With O(1) LCA lookup, this is truly O(1).
      */
     public double calculateSupportProductOptimized(TreeNode node1, TreeNode node2) {
         if(node1 == null || node2 == null) return 1.0;
         if(node1 == node2) return 1.0; // Same node, no path
         
-        TreeNode lca = findLCA(node1, node2);
+        TreeNode lca = findLCAFast(node1, node2);
         double logProduct = node1.depthSupportProductLog + node2.depthSupportProductLog - 2.0 * lca.depthSupportProductLog;
         
         // Handle very negative values (essentially zero product)
@@ -1072,6 +1085,106 @@ public class Tree {
         // Re-normalize in case the provided support value needs normalization
         normalizeSupportValues();
         calculateDepths();
+    }
+
+    /**
+     * Builds LCA table for O(1) LCA queries.
+     * Uses O(n²) time and space to precompute all pairwise LCAs.
+     * 
+     * Algorithm:
+     * 1. For each node x, find all nodes in subtree of each child
+     * 2. Set LCA for pairs (x,v) where v is in subtree of x  
+     * 3. Set LCA for cross pairs between different child subtrees
+     */
+    public void buildLCATable() {
+        int n = nodes.size();
+        lcaTable = new TreeNode[n][n];
+        
+        // Initialize diagonal (each node's LCA with itself)
+        for(int i = 0; i < n; i++) {
+            lcaTable[i][i] = nodes.get(i);
+        }
+        
+        // Build subtree lists for each node
+        List<Integer>[] subtree = new List[n];
+        for(int i = 0; i < n; i++) {
+            subtree[i] = new ArrayList<>();
+        }
+        buildSubtrees(root, subtree);
+        
+        // For every node x, assign pairs whose LCA is x
+        for(TreeNode x : nodes) {
+            int xIndex = x.index;
+            
+            if(x.childs != null) {
+                // Collect subtree lists for each child
+                List<List<Integer>> childSubtrees = new ArrayList<>();
+                for(TreeNode child : x.childs) {
+                    childSubtrees.add(subtree[child.index]);
+                    
+                    // Pairs (x, v) with v in subtree(child) -> LCA is x
+                    for(int v : subtree[child.index]) {
+                        if(v != xIndex) { // Don't overwrite diagonal
+                            lcaTable[xIndex][v] = x;
+                            lcaTable[v][xIndex] = x;
+                        }
+                    }
+                }
+                
+                // Cross pairs across different child subtrees -> LCA is x
+                for(int i = 0; i < childSubtrees.size(); i++) {
+                    for(int j = i + 1; j < childSubtrees.size(); j++) {
+                        for(int u : childSubtrees.get(i)) {
+                            for(int v : childSubtrees.get(j)) {
+                                lcaTable[u][v] = x;
+                                lcaTable[v][u] = x;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        lcaTableBuilt = true;
+    }
+    
+    /**
+     * Recursively builds subtree node lists for each node.
+     */
+    private void buildSubtrees(TreeNode node, List<Integer>[] subtree) {
+        subtree[node.index].add(node.index);
+        
+        if(node.childs != null) {
+            for(TreeNode child : node.childs) {
+                buildSubtrees(child, subtree);
+                subtree[node.index].addAll(subtree[child.index]);
+            }
+        }
+    }
+    
+    /**
+     * O(1) LCA query using precomputed table.
+     * Falls back to O(depth) method if table not built.
+     */
+    public TreeNode findLCAFast(TreeNode node1, TreeNode node2) {
+        if(node1 == null || node2 == null) return null;
+        
+        if(lcaTableBuilt) {
+            return lcaTable[node1.index][node2.index];
+        } else {
+            // Fallback to original method
+            return findLCA(node1, node2);
+        }
+    }
+    
+    /**
+     * O(1) LCA query using taxon IDs.
+     */
+    public TreeNode findLCAFast(int taxonId1, int taxonId2) {
+        if(!isTaxonPresent(taxonId1) || !isTaxonPresent(taxonId2)) {
+            return null;
+        }
+        return findLCAFast(leaves[taxonId1], leaves[taxonId2]);
     }
 
 }

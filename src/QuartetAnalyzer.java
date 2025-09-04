@@ -34,6 +34,9 @@ public class QuartetAnalyzer {
      * Usage: java src.QuartetAnalyzer <gene_trees_file> <output_file>
      */
     public static void main(String[] args) throws IOException {
+        // Start timing
+        long startTime = System.currentTimeMillis();
+        
         if(args.length < 2) {
             System.out.println("Usage: java src.QuartetAnalyzer <gene_trees_file> <output_file>");
             System.out.println("Example: java src.QuartetAnalyzer input/all_gt.tre quartet_weights.txt");
@@ -48,6 +51,7 @@ public class QuartetAnalyzer {
         System.out.println("==========================================");
         
         // Use existing GeneTrees class to read and parse trees
+        long parseStartTime = System.currentTimeMillis();
         GeneTrees trees = new GeneTrees(inputFilePath);
         var taxaMap = trees.readTaxaNames();
         
@@ -56,28 +60,44 @@ public class QuartetAnalyzer {
         
         // Read the gene trees (without distance matrix for polytomy resolution)
         trees.readGeneTrees(null);
+        long parseEndTime = System.currentTimeMillis();
         
         System.out.println("=== QUARTET ANALYSIS ===");
         System.out.println("Total gene trees: " + trees.geneTrees.size());
         System.out.println("Total taxa: " + trees.realTaxaCount);
+        System.out.printf("Tree parsing time: %.3f seconds%n", (parseEndTime - parseStartTime) / 1000.0);
         
         // Initialize quartet analyzer
         QuartetAnalyzer analyzer = new QuartetAnalyzer(taxaMap);
         
         // Add all gene trees
+        long addTreesStartTime = System.currentTimeMillis();
         for(Tree geneTree : trees.geneTrees) {
             analyzer.addGeneTree(geneTree);
         }
+        long addTreesEndTime = System.currentTimeMillis();
+        System.out.printf("Tree preprocessing time: %.3f seconds%n", (addTreesEndTime - addTreesStartTime) / 1000.0);
         
         // Analyze all quartets
+        long analysisStartTime = System.currentTimeMillis();
         analyzer.analyzeQuartets();
+        long analysisEndTime = System.currentTimeMillis();
+        System.out.printf("Quartet analysis time: %.3f seconds%n", (analysisEndTime - analysisStartTime) / 1000.0);
         
         // Print summary
         analyzer.printSummary();
         
         // Write results to output file
+        long writeStartTime = System.currentTimeMillis();
         analyzer.writeQuartetWeights(outputFilePath);
-        System.out.println("\nQuartet weights successfully written to: " + outputFilePath);
+        long writeEndTime = System.currentTimeMillis();
+        System.out.printf("File writing time: %.3f seconds%n", (writeEndTime - writeStartTime) / 1000.0);
+        
+        // Calculate and display total time
+        long totalTime = System.currentTimeMillis() - startTime;
+        System.out.println("\n==========================================");
+        System.out.printf("TOTAL TIME ELAPSED: %.3f seconds%n", totalTime / 1000.0);
+        System.out.println("Quartet weights successfully written to: " + outputFilePath);
     }
     
     /**

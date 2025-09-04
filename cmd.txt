@@ -1,3 +1,15 @@
+# Major three commands
+
+javac NewickCleaner.java && java NewickCleaner input/all_gt.tre output/gene_trees_cleaned.tre
+
+javac -cp . src/QuartetAnalyzer.java && java -cp . src.QuartetAnalyzer output/gene_trees_cleaned.tre output/quartets_unweighted.txt
+
+javac -cp . src/QuartetAnalyzer.java && java -cp . src.QuartetAnalyzer input/all_gt.tre output/quartets_weighted.txt
+
+
+
+# rough 
+
 javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/gtree_11tax_est_5genes_R1.tre
 javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/bee_bs.tre 
 javac src/TreeAnalyzer.java && java -cp . src.TreeAnalyzer input/test_1.tre 

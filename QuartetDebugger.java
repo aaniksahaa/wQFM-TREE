@@ -52,6 +52,8 @@ public class QuartetDebugger {
         System.out.println("Processed tree: " + tree.getNewickFormat());
         System.out.println("Available taxa: " + taxaSet);
         System.out.println("Total taxa count: " + taxaSet.size());
+        System.out.println("Total nodes: " + tree.nodes.size());
+        System.out.println("LCA table size: " + tree.nodes.size() + "x" + tree.nodes.size() + " = " + (tree.nodes.size() * tree.nodes.size()) + " entries");
         System.out.println();
     }
     
@@ -297,6 +299,12 @@ public class QuartetDebugger {
                 System.out.println("   Support product along u-v path (optimized): " + String.format("%.6f", supportProductOpt));
                 System.out.println("   u depthSupportProductLog: " + String.format("%.6f", topology.u.depthSupportProductLog));
                 System.out.println("   v depthSupportProductLog: " + String.format("%.6f", topology.v.depthSupportProductLog));
+                
+                // Test LCA methods for verification
+                TreeNode lcaTraditional = tree.findLCA(topology.u, topology.v);
+                TreeNode lcaFast = tree.findLCAFast(topology.u, topology.v);
+                System.out.println("   LCA of u,v (traditional): node " + lcaTraditional.index + " at depth " + lcaTraditional.depth);
+                System.out.println("   LCA of u,v (O(1) table): node " + lcaFast.index + " at depth " + lcaFast.depth);
                 
                 break; // Found valid topology, no need to check others
             }
